@@ -195,7 +195,7 @@ function canRunAction(action: ActionKey, state: TestState, hasActiveTest: boolea
   if (action === 'startRecording') return hasActiveTest && state === 'Ready';
   if (action === 'stopRecording') return hasActiveTest && state === 'Recording';
   if (action === 'exportCurrent') return hasActiveTest && (state === 'Recording' || state === 'Complete');
-  if (action === 'phenomenon') return hasActiveTest && (state === 'Recording' || state === 'Complete');
+  if (action === 'phenomenon') return hasActiveTest && state === 'Complete';
   return true;
 }
 

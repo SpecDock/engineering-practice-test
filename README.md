@@ -71,6 +71,8 @@ npm run package:builder
 - `Reports/*.xlsx`、`Reports/*.pdf`：导出报告。
 - `SmokeData/`：自动化烟测临时数据。
 
+源码运行时默认使用项目目录；打包后的 `ISO11820Desktop.exe` 默认使用系统 `userData` 目录保存运行数据。若验收时要求数据也落在指定目录，可设置环境变量 `ISO11820_BASE_DIR` 后启动应用。
+
 ## 架构边界
 
 ```txt

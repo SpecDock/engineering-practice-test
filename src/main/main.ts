@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { defaultConfig } from './config.js';
+import { createDefaultConfig } from './config.js';
 import { SqliteStore } from './db/SqliteStore.js';
 import { TestControllerService } from './services/TestControllerService.js';
 import { IPC_CHANNELS } from '../shared/ipc.js';
@@ -18,10 +18,8 @@ import type {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const store = new SqliteStore(defaultConfig.Database.SqlitePath);
-const service = new TestControllerService(defaultConfig, store);
-
 let mainWindow: BrowserWindow | null = null;
+let service: TestControllerService | null = null;
 
 async function createWindow(): Promise<void> {
   mainWindow = new BrowserWindow({
@@ -33,26 +31,31 @@ async function createWindow(): Promise<void> {
       nodeIntegration: false,
     },
   });
-  service.on('dataBroadcast', () => {
+  requireService().on('dataBroadcast', () => {
     if (mainWindow !== null && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(IPC_CHANNELS.dataBroadcast, service.getStatus());
+      mainWindow.webContents.send(IPC_CHANNELS.dataBroadcast, requireService().getStatus());
     }
   });
-  await mainWindow.loadFile(path.join(defaultConfig.FileStorage.BaseDirectory, 'dist', 'renderer', 'index.html'));
+  await mainWindow.loadFile(path.join(app.getAppPath(), 'dist', 'renderer', 'index.html'));
 }
 
 function registerHandlers(): void {
-  handle(IPC_CHANNELS.status, () => service.getStatus());
-  handle(IPC_CHANNELS.login, (payload) => service.login(asObject<LoginRequest>(payload)));
-  handle(IPC_CHANNELS.createTest, (payload) => service.createTest(asObject<CreateTestRequest>(payload)));
-  handle(IPC_CHANNELS.startHeating, () => service.startHeating());
-  handle(IPC_CHANNELS.stopHeating, () => service.stopHeating());
-  handle(IPC_CHANNELS.startRecording, () => service.startRecording());
-  handle(IPC_CHANNELS.stopRecording, () => service.stopRecording());
-  handle(IPC_CHANNELS.savePhenomenon, (payload) => service.savePhenomenon(asObject<PhenomenonRecordRequest>(payload)));
-  handle(IPC_CHANNELS.queryHistory, (payload) => service.queryHistory(asObject<QueryHistoryRequest>(payload)));
-  handle(IPC_CHANNELS.exportCurrent, () => service.exportCurrent());
-  handle(IPC_CHANNELS.saveCalibration, (payload) => service.saveCalibration(asObject<CalibrationInput>(payload)));
+  handle(IPC_CHANNELS.status, () => requireService().getStatus());
+  handle(IPC_CHANNELS.login, (payload) => requireService().login(asObject<LoginRequest>(payload)));
+  handle(IPC_CHANNELS.createTest, (payload) => requireService().createTest(asObject<CreateTestRequest>(payload)));
+  handle(IPC_CHANNELS.startHeating, () => requireService().startHeating());
+  handle(IPC_CHANNELS.stopHeating, () => requireService().stopHeating());
+  handle(IPC_CHANNELS.startRecording, () => requireService().startRecording());
+  handle(IPC_CHANNELS.stopRecording, () => requireService().stopRecording());
+  handle(IPC_CHANNELS.savePhenomenon, (payload) => requireService().savePhenomenon(asObject<PhenomenonRecordRequest>(payload)));
+  handle(IPC_CHANNELS.queryHistory, (payload) => requireService().queryHistory(asObject<QueryHistoryRequest>(payload)));
+  handle(IPC_CHANNELS.exportCurrent, () => requireService().exportCurrent());
+  handle(IPC_CHANNELS.saveCalibration, (payload) => requireService().saveCalibration(asObject<CalibrationInput>(payload)));
+}
+
+function requireService(): TestControllerService {
+  if (service === null) throw new Error('服务尚未初始化');
+  return service;
 }
 
 function handle<T>(channel: string, fn: (payload: unknown) => T | Promise<T>): void {
@@ -72,6 +75,11 @@ function asObject<T>(payload: unknown): T {
 }
 
 app.whenReady().then(async () => {
+  const appRoot = app.getAppPath();
+  const dataRoot = process.env.ISO11820_BASE_DIR ?? (app.isPackaged ? app.getPath('userData') : process.cwd());
+  const config = createDefaultConfig(dataRoot);
+  const store = new SqliteStore(config.Database.SqlitePath, path.join(appRoot, 'node_modules', 'sql.js', 'dist'));
+  service = new TestControllerService(config, store);
   await service.init();
   registerHandlers();
   await createWindow();
@@ -82,7 +90,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  void service.shutdown();
+  void service?.shutdown();
 });
 
 app.on('activate', () => {

@@ -34,11 +34,14 @@ export class SqliteStore {
   private SQL: SqlJsStatic | null = null;
   private db: Database | null = null;
 
-  public constructor(private readonly dbPath: string) {}
+  public constructor(
+    private readonly dbPath: string,
+    private readonly wasmDirectory = path.join(process.cwd(), 'node_modules', 'sql.js', 'dist'),
+  ) {}
 
   public async init(): Promise<void> {
     await fs.mkdir(path.dirname(this.dbPath), { recursive: true });
-    this.SQL = await initSqlJs({ locateFile: (fileName: string) => path.join(process.cwd(), 'node_modules', 'sql.js', 'dist', fileName) });
+    this.SQL = await initSqlJs({ locateFile: (fileName: string) => path.join(this.wasmDirectory, fileName) });
     const existing = await this.readExistingDb();
     this.db = existing === null ? new this.SQL.Database() : new this.SQL.Database(existing);
     this.database.run(schemaSql);

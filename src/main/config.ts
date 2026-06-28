@@ -1,12 +1,13 @@
 import path from 'node:path';
 import type { AppConfig } from '../shared/types.js';
 
-export const BASE_DIRECTORY = 'D:/Final_Test/test';
+export const BASE_DIRECTORY = process.env.ISO11820_BASE_DIR ?? process.cwd();
 
-export const defaultConfig: AppConfig = {
+export function createDefaultConfig(baseDirectory: string): AppConfig {
+  return {
   Database: {
     Provider: 'Sqlite',
-    SqlitePath: path.join(BASE_DIRECTORY, 'Data', 'ISO11820.db'),
+    SqlitePath: path.join(baseDirectory, 'Data', 'ISO11820.db'),
   },
   Hardware: {
     ConstPower: 2048,
@@ -27,11 +28,14 @@ export const defaultConfig: AppConfig = {
     MaxTemperatureDriftPerTenMinutes: 2,
   },
   FileStorage: {
-    BaseDirectory: BASE_DIRECTORY,
-    TestDataDirectory: path.join(BASE_DIRECTORY, 'TestData'),
+    BaseDirectory: baseDirectory,
+    TestDataDirectory: path.join(baseDirectory, 'TestData'),
   },
   Report: {
-    OutputDirectory: path.join(BASE_DIRECTORY, 'Reports'),
+    OutputDirectory: path.join(baseDirectory, 'Reports'),
     EnablePdfExport: true,
   },
-};
+  };
+}
+
+export const defaultConfig: AppConfig = createDefaultConfig(BASE_DIRECTORY);

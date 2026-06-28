@@ -82,6 +82,10 @@ export class TestControllerService extends TypedEmitter {
     validateCreateTestRequest(request);
     if (this.state === 'Complete' && this.savedResult === null) throw new Error('上一次试验已完成但未保存，不能新建');
     if (this.currentTest !== null && this.state !== 'Idle' && this.state !== 'Complete') throw new Error('当前有活动试验，不能新建');
+    if (this.state === 'Complete') {
+      this.state = 'Idle';
+      this.isHeating = false;
+    }
     this.currentTest = request;
     this.samples = [];
     this.recordingSeconds = 0;
@@ -90,11 +94,11 @@ export class TestControllerService extends TypedEmitter {
     this.store.insertTestInitial(request);
     await this.store.save();
     this.pushMessage(`新建试验 ${request.productid}/${request.testid}`);
-    return { ok: true, productid: request.productid, testid: request.testid, nextState: this.state === 'Idle' ? 'Idle' : 'Preparing' };
+    return { ok: true, productid: request.productid, testid: request.testid, nextState: 'Idle' };
   }
 
   public startHeating(): Promise<StateChangeResponse> {
-    if (this.state !== 'Idle' && this.state !== 'Complete') throw new Error('当前状态不能开始升温');
+    if (this.state !== 'Idle') throw new Error('当前状态不能开始升温，请先新建试验或回到待机状态');
     const previousState = this.state;
     this.state = 'Preparing';
     this.isHeating = true;
