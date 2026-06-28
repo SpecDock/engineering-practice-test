@@ -79,7 +79,7 @@ export class TestControllerService extends TypedEmitter {
   }
 
   public async createTest(request: CreateTestRequest): Promise<CreateTestResponse> {
-    if (this.currentTest !== null && this.state !== 'Idle') throw new Error('当前有活动试验，不能新建');
+    if (this.currentTest !== null && this.state !== 'Idle' && this.state !== 'Complete') throw new Error('当前有活动试验，不能新建');
     this.currentTest = request;
     this.samples = [];
     this.recordingSeconds = 0;

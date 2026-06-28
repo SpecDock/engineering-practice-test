@@ -1,0 +1,105 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { defaultConfig } from '../dist/main/main/config.js';
+import { SqliteStore } from '../dist/main/main/db/SqliteStore.js';
+import { TestControllerService } from '../dist/main/main/services/TestControllerService.js';
+
+const root = process.cwd();
+const smokeRoot = path.join(root, 'SmokeData');
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForReady(service) {
+  const deadline = Date.now() + 12_000;
+  while (Date.now() < deadline) {
+    const status = service.getStatus();
+    if (status.snapshot.state === 'Ready') return status;
+    await delay(250);
+  }
+  throw new Error(`等待 Ready 超时，当前状态：${service.getStatus().snapshot.state}`);
+}
+
+async function main() {
+  await fs.rm(smokeRoot, { recursive: true, force: true });
+  const config = structuredClone(defaultConfig);
+  config.Database.SqlitePath = path.join(smokeRoot, 'Data', 'ISO11820-smoke.db');
+  config.FileStorage.BaseDirectory = smokeRoot;
+  config.FileStorage.TestDataDirectory = path.join(smokeRoot, 'TestData');
+  config.Report.OutputDirectory = path.join(smokeRoot, 'Reports');
+  config.Simulation.HeatingRatePerSecond = 400;
+  config.Simulation.TempFluctuation = 0;
+
+  const store = new SqliteStore(config.Database.SqlitePath);
+  const service = new TestControllerService(config, store);
+  await service.init();
+  try {
+    const login = await service.login({ role: 'admin', pwd: '123456' });
+    assert(login.ok, '默认 admin 登录失败');
+
+    const apparatus = service.getStatus().apparatus;
+    const testid = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+    const productid = `SMOKE-${testid}`;
+    await service.createTest({
+      environmentTemperatureC: 23,
+      environmentHumidityPercent: 50,
+      productid,
+      testid,
+      productName: '烟测样品',
+      specification: '100×50×25mm',
+      heightMm: 25,
+      diameterMm: 50,
+      operator: 'admin',
+      durationMode: 'custom_minutes',
+      customDurationMinutes: 1,
+      preweight: 100,
+      apparatusNumber: apparatus.innernumber,
+      apparatusName: apparatus.apparatusname,
+      verificationDate: apparatus.checkdatet,
+      constPower: apparatus.constpower,
+    });
+    await service.startHeating();
+    await waitForReady(service);
+    await service.startRecording();
+    await delay(2200);
+    await service.stopRecording();
+    const result = await service.savePhenomenon({
+      productid,
+      testid,
+      hasContinuousFlame: false,
+      postweight: 96,
+      remark: 'smoke test',
+    });
+    assert(Number.isFinite(result.lostweight_per), '试验结果未计算失重率');
+
+    const history = await service.queryHistory({ productidLike: productid });
+    assert(history.rows.length === 1, '历史查询未返回烟测记录');
+    assert(history.rows[0]?.flag === '10000000', '试验记录未保存完成标记');
+
+    const calibration = await service.saveCalibration({
+      calibrationType: 'Surface',
+      operator: 'admin',
+      points: [750, 751, 749, 750, 750, 752, 748, 751, 749],
+      remarks: 'smoke calibration',
+    });
+    assert(calibration.passedCriteria, '校准烟测未通过');
+
+    const exported = await service.exportCurrent();
+    await fs.access(exported.csvPath);
+    await fs.access(exported.excelPath);
+    await fs.access(exported.pdfPath);
+    console.log(JSON.stringify({ ok: true, productid, testid, exported }, null, 2));
+  } finally {
+    await service.shutdown();
+  }
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

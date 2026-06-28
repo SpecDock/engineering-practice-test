@@ -3,6 +3,7 @@ dist/
 Data/
 TestData/
 Reports/
+SmokeData/
 *.log
 *.tmp
 .DS_Store
