@@ -15,6 +15,11 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function assertNonEmptyFile(filePath, label) {
+  const stat = await fs.stat(filePath);
+  assert(stat.size > 0, `${label} 文件为空：${filePath}`);
+}
+
 async function waitForReady(service) {
   const deadline = Date.now() + 12_000;
   while (Date.now() < deadline) {
@@ -90,9 +95,15 @@ async function main() {
     assert(calibration.passedCriteria, '校准烟测未通过');
 
     const exported = await service.exportCurrent();
-    await fs.access(exported.csvPath);
-    await fs.access(exported.excelPath);
-    await fs.access(exported.pdfPath);
+    await assertNonEmptyFile(exported.csvPath, 'CSV');
+    await assertNonEmptyFile(exported.excelPath, 'Excel');
+    await assertNonEmptyFile(exported.pdfPath, 'PDF');
+    const csv = await fs.readFile(exported.csvPath, 'utf8');
+    const csvLines = csv.trim().split(/\r?\n/);
+    assert(csvLines[0] === 'Time,Temp1,Temp2,TempSurface,TempCenter,TempCalibration', 'CSV 表头不正确');
+    assert(csvLines.length >= 2, 'CSV 缺少至少 1 行温度数据');
+    const historyAfterExport = await service.queryHistory({ productidLike: productid });
+    assert(historyAfterExport.rows[0]?.flag === '10000000', '导出后历史记录完成标记丢失');
     console.log(JSON.stringify({ ok: true, productid, testid, exported }, null, 2));
   } finally {
     await service.shutdown();

@@ -27,12 +27,33 @@ npm run dev
 ```bash
 npm run typecheck
 npm run smoke
+npm run verify-no-network
+npm run verify
 npm test
 ```
 
 - `typecheck`：检查渲染进程、主进程和共享类型。
-- `smoke`：构建后执行本地业务烟测，覆盖登录、新建试验、升温到 Ready、记录、保存、历史查询、校准和导出文件检查。
-- `test`：先类型检查，再执行烟测。
+- `smoke`：构建后执行本地业务烟测，覆盖登录、新建试验、升温到 Ready、记录、保存、历史查询、校准、CSV 表头/数据行、Excel/PDF 非空文件和数据库完成标记。
+- `verify-no-network`：扫描 `src/` 与 `scripts/`，阻止 `fetch`、WebSocket、EventSource、localhost、HTTP server 等网络/端口代码进入本地桌面边界。
+- `verify` / `test`：先类型检查，再执行烟测和无网络扫描。
+
+## 打包命令
+
+默认打包使用本地离线目录输出脚本，不启动端口，也不依赖外部下载：
+
+```bash
+npm run package
+```
+
+输出目录：`release/win-unpacked/`，入口为 `ISO11820Desktop.exe`。
+
+如果后续具备稳定网络和签名配置，也保留了 electron-builder 目录打包命令：
+
+```bash
+npm run package:builder
+```
+
+如需 NSIS/MSI 安装器，可在 `package.json > build.win.target` 中追加对应 target 后再打包。
 
 ## 默认账号
 
@@ -72,10 +93,30 @@ Electron Main / 本地应用服务
 - 历史查询。
 - 9 点校准记录。
 - CSV / Excel / PDF 导出。
+- PDF 直接绘制 TF1/TF2/TS/TC 四条温度曲线、坐标轴和图例。
+- Excel 输出试验信息、完整温度数据、统计与判定、曲线数据说明表。
 - 工业仪表风格 UI、LED 温度显示、SVG 温度曲线、消息日志和 GSAP 微动效。
+
+## 正式交付验收清单
+
+- [ ] `npm install` 完成且无安装失败。
+- [ ] `npm run typecheck` 通过，主进程、共享类型和 renderer 类型均无错误。
+- [ ] `npm run smoke` 通过，且生成 SQLite、CSV、Excel、PDF 文件。
+- [ ] `npm run verify-no-network` 通过，确认未引入 HTTP/REST/localhost 服务。
+- [ ] 登录默认账号 `admin / 123456` 与 `experimenter / 123456` 可用。
+- [ ] 新建试验必填项、正数项、自定义时长、现象保存、火焰字段校验符合预期。
+- [ ] 历史查询能看到保存后 `flag = 10000000` 的记录。
+- [ ] 打包前运行 `npm run package`，确认 `release/win-unpacked/` 可启动。
+
+## 已知限制
+
+- 当前密码按源文档明文存储；生产加密策略未定义。
+- PDF 使用 PDFKit 基础字体优先保证英文兼容；中文字段含义在 Excel/README 中完整保留，PDF 中采用英文标签避免缺字风险。
+- ExcelJS 社区版不原生生成图表；当前生成完整曲线数据表与统计表，PDF 中直接绘制曲线。
+- 仿真器不是真实硬件/PID/Modbus，实现范围限定为源文档定义的本地仿真流程。
+- `MaxTemperatureDriftPerTenMinutes`、自定义时长默认兜底等源文档未给配置键的内容已在源码注释中说明。
 
 ## 待确认项
 
-- 当前密码按源文档明文存储；生产加密策略未定义。
-- PDF 为基础概要报告，尚未嵌入真实曲线图片。
-- ExcelJS 社区版不原生生成图表，曲线数据写入“温度数据”Sheet，图表说明写入“温度曲线”Sheet。
+- 若未来需要安装器而非目录输出，需要确认安装路径、签名证书、自动更新策略。
+- 若未来需要真实硬件，需要另行确认 Modbus/串口/PID 协议细节。

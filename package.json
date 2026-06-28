@@ -10,25 +10,48 @@
     "start": "electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.main.json --noEmit",
     "smoke": "npm run build && node scripts/smoke.mjs",
-    "test": "npm run typecheck && npm run smoke"
+    "verify-no-network": "node scripts/verify-no-network.mjs",
+    "verify": "npm run typecheck && npm run smoke && npm run verify-no-network",
+    "package": "npm run build && node scripts/package-local.mjs",
+    "package:builder": "npm run build && electron-builder --win --dir",
+    "test": "npm run verify"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "electron": "latest",
     "exceljs": "latest",
     "gsap": "latest",
     "pdfkit": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "sql.js": "latest",
-    "vite": "latest"
+    "sql.js": "latest"
   },
   "devDependencies": {
+    "@vitejs/plugin-react": "latest",
     "@types/node": "latest",
     "@types/pdfkit": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "@types/sql.js": "latest",
-    "typescript": "latest"
+    "electron": "latest",
+    "electron-builder": "latest",
+    "typescript": "latest",
+    "vite": "latest"
+  },
+  "build": {
+    "appId": "cn.iso11820.desktop",
+    "productName": "ISO11820Desktop",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "node_modules/sql.js/dist/sql-wasm.wasm"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        "dir"
+      ]
+    }
   }
 }

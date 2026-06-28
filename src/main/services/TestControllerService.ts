@@ -79,6 +79,8 @@ export class TestControllerService extends TypedEmitter {
   }
 
   public async createTest(request: CreateTestRequest): Promise<CreateTestResponse> {
+    validateCreateTestRequest(request);
+    if (this.state === 'Complete' && this.savedResult === null) throw new Error('上一次试验已完成但未保存，不能新建');
     if (this.currentTest !== null && this.state !== 'Idle' && this.state !== 'Complete') throw new Error('当前有活动试验，不能新建');
     this.currentTest = request;
     this.samples = [];
@@ -132,6 +134,8 @@ export class TestControllerService extends TypedEmitter {
 
   public async savePhenomenon(request: PhenomenonRecordRequest): Promise<PhenomenonCalculatedResult> {
     const test = this.requireCurrentTest(request.productid, request.testid);
+    validatePhenomenonRequest(request, test.preweight, this.recordingSeconds);
+    if (this.state !== 'Complete' || this.samples.length === 0) throw new Error('试验未完成或没有记录样本，不能保存现象');
     const initial = this.samples[0] ?? this.sampleFromSensors(0);
     const final = this.samples[this.samples.length - 1] ?? initial;
     const lostweight = test.preweight - request.postweight;
@@ -289,4 +293,53 @@ export class TestControllerService extends TypedEmitter {
     const error = this.config.Hardware.PidTemperature - ((sensors.TF1 + sensors.TF2) / 2);
     return Math.max(0, Math.min(25600, this.config.Hardware.ConstPower + error * 8));
   }
+}
+
+function validateCreateTestRequest(request: CreateTestRequest): void {
+  requireText(request.productid, '样品编号');
+  requireText(request.testid, '试验ID');
+  requireText(request.productName, '样品名称');
+  requireText(request.specification, '规格型号');
+  requireText(request.operator, '操作员');
+  requireText(request.apparatusNumber, '设备编号');
+  requireText(request.apparatusName, '设备名称');
+  requireText(request.verificationDate, '检定日期');
+  requirePositiveFinite(request.environmentTemperatureC, '环境温度');
+  requirePositiveFinite(request.environmentHumidityPercent, '环境湿度');
+  requirePositiveFinite(request.heightMm, '样品高度');
+  requirePositiveFinite(request.diameterMm, '样品直径');
+  requirePositiveFinite(request.preweight, '试验前质量');
+  requirePositiveFinite(request.constPower, '恒功率');
+  if (request.durationMode === 'custom_minutes') {
+    requirePositiveFinite(request.customDurationMinutes, '自定义试验时长');
+  }
+}
+
+function validatePhenomenonRequest(request: PhenomenonRecordRequest, preweight: number, recordingSeconds: number): void {
+  requireText(request.productid, '样品编号');
+  requireText(request.testid, '试验ID');
+  requirePositiveFinite(request.postweight, '试验后质量');
+  if (request.postweight > preweight) throw new Error('试验后质量不能大于试验前质量');
+  if (request.hasContinuousFlame) {
+    requireNonNegativeFinite(request.flameStartSecond, '火焰开始时刻');
+    requirePositiveFinite(request.flameDurationSecond, '火焰持续时间');
+    const flameStart = request.flameStartSecond ?? 0;
+    const flameDuration = request.flameDurationSecond ?? 0;
+    if (flameStart > recordingSeconds) throw new Error('火焰开始时刻不能超过记录时长');
+    if (flameStart + flameDuration > recordingSeconds) throw new Error('火焰持续区间不能超过记录时长');
+  } else if (request.flameStartSecond !== undefined || request.flameDurationSecond !== undefined) {
+    throw new Error('未勾选持续火焰时不能填写火焰时刻');
+  }
+}
+
+function requireText(value: string, label: string): void {
+  if (value.trim() === '') throw new Error(`${label}不能为空`);
+}
+
+function requirePositiveFinite(value: number | undefined, label: string): void {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) throw new Error(`${label}必须大于 0`);
+}
+
+function requireNonNegativeFinite(value: number | undefined, label: string): void {
+  if (value === undefined || !Number.isFinite(value) || value < 0) throw new Error(`${label}不能小于 0`);
 }

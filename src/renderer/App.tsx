@@ -61,12 +61,53 @@ interface UiNotice {
   text: string;
 }
 
+interface UiEvent {
+  id: number;
+  time: string;
+  tone: UiNotice['tone'];
+  text: string;
+}
+
+type ActionKey =
+  | 'create'
+  | 'startHeating'
+  | 'stopHeating'
+  | 'startRecording'
+  | 'stopRecording'
+  | 'exportCurrent'
+  | 'phenomenon'
+  | 'queryHistory'
+  | 'saveCalibration';
+
 const channelLabels = [
   { key: 'TF1', label: 'TF1 炉温 1', field: 'temp1', color: '#4de2ff' },
   { key: 'TF2', label: 'TF2 炉温 2', field: 'temp2', color: '#8bff9a' },
   { key: 'TS', label: 'TS 表面', field: 'tempSurface', color: '#ffd36a' },
   { key: 'TC', label: 'TC 中心', field: 'tempCenter', color: '#ff6f91' },
 ] as const;
+
+const actionLabels: Record<ActionKey, string> = {
+  create: '创建试验',
+  startHeating: '开始升温',
+  stopHeating: '停止升温',
+  startRecording: '开始记录',
+  stopRecording: '停止记录',
+  exportCurrent: '导出当前',
+  phenomenon: '保存现象',
+  queryHistory: '历史查询',
+  saveCalibration: '保存校准',
+};
+
+const chart = {
+  width: 820,
+  height: 280,
+  left: 54,
+  right: 18,
+  top: 18,
+  bottom: 34,
+  min: 0,
+  max: 800,
+} as const;
 
 const emptySnapshot: TemperatureDisplaySnapshot = {
   sensors: { TF1: 0, TF2: 0, TS: 0, TC: 0, TCal: 0 },
@@ -119,6 +160,10 @@ function formatSeconds(totalSeconds: number): string {
   return [hours, minutes, seconds].map((part) => String(part).padStart(2, '0')).join(':');
 }
 
+function formatClock(date = new Date()): string {
+  return date.toLocaleTimeString('zh-CN', { hour12: false });
+}
+
 function stateText(state: TestState): string {
   const map: Record<TestState, string> = {
     Idle: '待机',
@@ -143,22 +188,35 @@ function compactRequest(filter: HistoryFilterState): QueryHistoryRequest {
   };
 }
 
+function canRunAction(action: ActionKey, state: TestState, hasActiveTest: boolean): boolean {
+  if (action === 'create') return state === 'Idle' || state === 'Complete';
+  if (action === 'startHeating') return hasActiveTest && (state === 'Idle' || state === 'Preparing' || state === 'Ready');
+  if (action === 'stopHeating') return hasActiveTest && (state === 'Preparing' || state === 'Ready');
+  if (action === 'startRecording') return hasActiveTest && state === 'Ready';
+  if (action === 'stopRecording') return hasActiveTest && state === 'Recording';
+  if (action === 'exportCurrent') return hasActiveTest && (state === 'Recording' || state === 'Complete');
+  if (action === 'phenomenon') return hasActiveTest && (state === 'Recording' || state === 'Complete');
+  return true;
+}
+
+function disabledHint(action: ActionKey, state: TestState, hasActiveTest: boolean): string {
+  if (!hasActiveTest && action !== 'create' && action !== 'queryHistory' && action !== 'saveCalibration') return '请先创建试验';
+  return `${stateText(state)}状态下不能${actionLabels[action]}`;
+}
+
 function buildPath(samples: readonly TemperatureSample[], field: (typeof channelLabels)[number]['field']): string {
-  const width = 760;
-  const height = 250;
-  const padding = 18;
   const recent = samples.slice(-90);
   if (recent.length < 2) return '';
 
-  const values = recent.flatMap((sample) => channelLabels.map((channel) => sample[channel.field]));
-  const minValue = Math.min(...values, 0);
-  const maxValue = Math.max(...values, 100);
-  const range = Math.max(maxValue - minValue, 1);
+  const plotWidth = chart.width - chart.left - chart.right;
+  const plotHeight = chart.height - chart.top - chart.bottom;
+  const range = chart.max - chart.min;
 
   return recent
     .map((sample, index) => {
-      const x = padding + (index / (recent.length - 1)) * (width - padding * 2);
-      const y = height - padding - ((sample[field] - minValue) / range) * (height - padding * 2);
+      const x = chart.left + (index / (recent.length - 1)) * plotWidth;
+      const safeValue = Math.min(chart.max, Math.max(chart.min, sample[field]));
+      const y = chart.height - chart.bottom - ((safeValue - chart.min) / range) * plotHeight;
       return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
     })
     .join(' ');
@@ -179,6 +237,11 @@ function LoginPanel({ onLogin }: { onLogin: (session: Session) => void }) {
       { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'power3.out' },
     );
   }, []);
+
+  useEffect(() => {
+    if (!error) return;
+    gsap.fromTo('.login-error', { opacity: 0, x: -8 }, { opacity: 1, x: 0, duration: 0.22, ease: 'power2.out' });
+  }, [error]);
 
   async function submitLogin() {
     setBusy(true);
@@ -204,6 +267,7 @@ function LoginPanel({ onLogin }: { onLogin: (session: Session) => void }) {
         <p className="eyebrow">ISO 11820 SIMULATION CONSOLE</p>
         <h1>本地仿真试验台</h1>
         <p className="login-copy">连接本机预加载安全通道，进入升温、记录、校准与历史追溯工作区。</p>
+        <div className="login-hint">未登录：请选择身份并输入密码，所有试验控制会在登录后启用。</div>
 
         <div className="role-switch" aria-label="选择登录身份">
           {(['admin', 'experimenter'] as const).map((item) => (
@@ -248,6 +312,7 @@ function TemperatureChart({ samples }: { samples: readonly TemperatureSample[] }
     () => channelLabels.map((channel) => ({ ...channel, path: buildPath(samples, channel.field) })),
     [samples],
   );
+  const yTicks = [800, 600, 400, 200, 0];
 
   return (
     <section className="panel chart-panel">
@@ -264,20 +329,38 @@ function TemperatureChart({ samples }: { samples: readonly TemperatureSample[] }
           ))}
         </div>
       </div>
-      <svg className="temperature-svg" viewBox="0 0 760 250" role="img" aria-label="TF1 TF2 TS TC 最近样本折线">
+      <svg className="temperature-svg" viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label="TF1 TF2 TS TC 最近样本折线">
         <defs>
           <linearGradient id="chartGlow" x1="0" x2="1">
             <stop offset="0" stopColor="#16344a" />
             <stop offset="1" stopColor="#0b121a" />
           </linearGradient>
         </defs>
-        <rect width="760" height="250" rx="18" fill="url(#chartGlow)" />
-        {[0, 1, 2, 3].map((line) => (
-          <line key={line} x1="18" x2="742" y1={32 + line * 52} y2={32 + line * 52} className="grid-line" />
+        <rect width={chart.width} height={chart.height} rx="18" fill="url(#chartGlow)" />
+        {yTicks.map((tick) => {
+          const y = chart.height - chart.bottom - ((tick - chart.min) / (chart.max - chart.min)) * (chart.height - chart.top - chart.bottom);
+          return (
+            <g key={tick}>
+              <line x1={chart.left} x2={chart.width - chart.right} y1={y} y2={y} className="grid-line" />
+              <text x="18" y={y + 4} className="axis-label">{tick}</text>
+            </g>
+          );
+        })}
+        {[0, 1, 2, 3, 4].map((line) => (
+          <line key={line} x1={chart.left + line * ((chart.width - chart.left - chart.right) / 4)} x2={chart.left + line * ((chart.width - chart.left - chart.right) / 4)} y1={chart.top} y2={chart.height - chart.bottom} className="grid-line vertical" />
         ))}
+        <text x={chart.width - 84} y={chart.height - 10} className="axis-label">最近样本</text>
+        <text x="18" y="18" className="axis-label">℃</text>
         {paths.map((channel) => (
           <path key={channel.key} d={channel.path} fill="none" stroke={channel.color} strokeWidth="3" strokeLinecap="round" />
         ))}
+        {samples.length === 0 && (
+          <g className="chart-empty">
+            <rect x="250" y="104" width="320" height="72" rx="18" />
+            <text x="410" y="134" textAnchor="middle">尚未记录温度样本</text>
+            <text x="410" y="158" textAnchor="middle">开始记录后这里会显示最近 TF1 / TF2 / TS / TC 曲线</text>
+          </g>
+        )}
       </svg>
     </section>
   );
@@ -291,13 +374,19 @@ function App() {
   const [phenomenon, setPhenomenon] = useState<PhenomenonState>(initialPhenomenon);
   const [historyFilter, setHistoryFilter] = useState<HistoryFilterState>({ startDate: '', endDate: '', productidLike: '', operator: '' });
   const [historyRows, setHistoryRows] = useState<readonly TestMasterRow[]>([]);
+  const [historyQueried, setHistoryQueried] = useState(false);
   const [calibration, setCalibration] = useState<CalibrationState>(initialCalibration);
   const [notice, setNotice] = useState<UiNotice | null>(null);
+  const [uiEvents, setUiEvents] = useState<readonly UiEvent[]>([]);
+  const [hasCreatedTest, setHasCreatedTest] = useState(false);
   const [busyAction, setBusyAction] = useState<string>('');
 
   const snapshot = status?.snapshot ?? emptySnapshot;
   const messages = status?.messages ?? [];
   const samples = status?.samples ?? [];
+  const activeProductId = snapshot.productid ?? (hasCreatedTest ? testForm.productid : null);
+  const hasActiveTest = Boolean(activeProductId);
+  const activeTestLine = hasActiveTest ? `${testForm.productName} · ${testForm.specification}` : '创建试验后会显示样品、计时、温漂与报告状态';
 
   useEffect(() => {
     if (!session) return;
@@ -319,6 +408,10 @@ function App() {
   }, [session]);
 
   useEffect(() => {
+    if (snapshot.productid) setHasCreatedTest(true);
+  }, [snapshot.productid]);
+
+  useEffect(() => {
     if (!session || !appRef.current) return;
     const ctx = gsap.context(() => {
       gsap.fromTo(
@@ -334,8 +427,14 @@ function App() {
     gsap.fromTo('.state-pill', { scale: 0.96 }, { scale: 1, duration: 0.25, ease: 'back.out(2)' });
   }, [snapshot.state]);
 
+  useEffect(() => {
+    if (!notice) return;
+    gsap.fromTo('.notice', { opacity: 0, y: -8, scale: 0.98 }, { opacity: 1, y: 0, scale: 1, duration: 0.28, ease: 'power2.out' });
+  }, [notice]);
+
   function showNotice(tone: UiNotice['tone'], text: string) {
     setNotice({ tone, text });
+    setUiEvents((current) => [{ id: Date.now(), time: formatClock(), tone, text }, ...current].slice(0, 8));
     window.setTimeout(() => setNotice(null), 3800);
   }
 
@@ -354,13 +453,18 @@ function App() {
     }));
   }
 
-  async function runAction(label: string, action: () => Promise<string>) {
+  async function runAction(label: ActionKey, action: () => Promise<string>) {
+    if (!canRunAction(label, snapshot.state, hasActiveTest)) {
+      showNotice('warn', disabledHint(label, snapshot.state, hasActiveTest));
+      return;
+    }
     setBusyAction(label);
     try {
       const text = await action();
       showNotice('ok', text);
     } catch (err) {
-      showNotice('danger', err instanceof Error ? err.message : `${label}失败`);
+      const message = err instanceof Error && err.message ? err.message : '本地接口返回异常，请检查当前状态或核心服务。';
+      showNotice('danger', `${actionLabels[label]}失败：${message}`);
     } finally {
       setBusyAction('');
     }
@@ -387,6 +491,7 @@ function App() {
     };
 
     const response = await window.iso11820.createTest(request);
+    setHasCreatedTest(true);
     return `试验 ${response.testid} 已创建，状态进入 ${stateText(response.nextState)}`;
   }
 
@@ -407,7 +512,8 @@ function App() {
   async function queryHistory() {
     const response = await window.iso11820.queryHistory(compactRequest(historyFilter));
     setHistoryRows(response.rows);
-    showNotice('ok', `查询完成，共 ${response.rows.length} 条记录`);
+    setHistoryQueried(true);
+    return `查询完成，共 ${response.rows.length} 条记录`;
   }
 
   async function saveCalibration() {
@@ -417,7 +523,7 @@ function App() {
       remarks: calibration.remarks,
       points: calibration.points.map((point) => toNumber(point)),
     });
-    showNotice('ok', `校准保存：平均 ${response.averageTemperature.toFixed(1)}℃，最大偏差 ${response.maxDeviation.toFixed(2)}℃`);
+    return `校准保存：平均 ${response.averageTemperature.toFixed(1)}℃，最大偏差 ${response.maxDeviation.toFixed(2)}℃`;
   }
 
   if (!session) {
@@ -433,6 +539,8 @@ function App() {
         </div>
         <div className="topbar-status">
           <span className={`state-pill state-${snapshot.state.toLowerCase()}`}>{stateText(snapshot.state)}</span>
+          <span className="sync-pill">{status ? '本地通道已连接' : '等待本地状态'}</span>
+          <span>{status?.apparatus.apparatusname ?? 'ISO 11820 仪器'}</span>
           <span>{session.role === 'admin' ? '管理员' : '实验员'} · {session.username}</span>
         </div>
       </header>
@@ -443,8 +551,9 @@ function App() {
         <div className="panel hero-panel">
           <div>
             <p className="eyebrow">CURRENT SAMPLE</p>
-            <h2>{snapshot.productid ?? testForm.productid}</h2>
-            <p>{testForm.productName} · {testForm.specification}</p>
+            <h2>{activeProductId ?? '尚未新建试验'}</h2>
+            <p>{activeTestLine}</p>
+            {!hasActiveTest && <div className="inline-empty">请先在左侧填写试验信息并点击“创建试验”。</div>}
           </div>
           <div className="metric-stack">
             <div>
@@ -471,7 +580,12 @@ function App() {
               <p className="eyebrow">TEST SETUP</p>
               <h2>新建试验</h2>
             </div>
-            <button className="soft-button" disabled={busyAction === 'create'} onClick={() => runAction('create', createTest)}>
+            <button
+              className="soft-button"
+              disabled={busyAction === 'create' || !canRunAction('create', snapshot.state, hasActiveTest)}
+              title={!canRunAction('create', snapshot.state, hasActiveTest) ? disabledHint('create', snapshot.state, hasActiveTest) : undefined}
+              onClick={() => runAction('create', createTest)}
+            >
               创建试验
             </button>
           </div>
@@ -499,14 +613,23 @@ function App() {
             </div>
           </div>
           <div className="control-grid">
-            <button onClick={() => runAction('startHeating', async () => stateText((await window.iso11820.startHeating()).nextState))}>开始升温</button>
-            <button onClick={() => runAction('stopHeating', async () => stateText((await window.iso11820.stopHeating()).nextState))}>停止升温</button>
-            <button onClick={() => runAction('startRecording', async () => stateText((await window.iso11820.startRecording()).nextState))}>开始记录</button>
-            <button onClick={() => runAction('stopRecording', async () => stateText((await window.iso11820.stopRecording()).nextState))}>停止记录</button>
-            <button onClick={() => runAction('exportCurrent', async () => {
+            <button disabled={busyAction === 'startHeating' || !canRunAction('startHeating', snapshot.state, hasActiveTest)} title={!canRunAction('startHeating', snapshot.state, hasActiveTest) ? disabledHint('startHeating', snapshot.state, hasActiveTest) : undefined} onClick={() => runAction('startHeating', async () => `升温指令已发送，当前状态：${stateText((await window.iso11820.startHeating()).nextState)}`)}>开始升温</button>
+            <button disabled={busyAction === 'stopHeating' || !canRunAction('stopHeating', snapshot.state, hasActiveTest)} title={!canRunAction('stopHeating', snapshot.state, hasActiveTest) ? disabledHint('stopHeating', snapshot.state, hasActiveTest) : undefined} onClick={() => runAction('stopHeating', async () => `升温已停止，当前状态：${stateText((await window.iso11820.stopHeating()).nextState)}`)}>停止升温</button>
+            <button disabled={busyAction === 'startRecording' || !canRunAction('startRecording', snapshot.state, hasActiveTest)} title={!canRunAction('startRecording', snapshot.state, hasActiveTest) ? disabledHint('startRecording', snapshot.state, hasActiveTest) : undefined} onClick={() => runAction('startRecording', async () => `记录已开始，当前状态：${stateText((await window.iso11820.startRecording()).nextState)}`)}>开始记录</button>
+            <button disabled={busyAction === 'stopRecording' || !canRunAction('stopRecording', snapshot.state, hasActiveTest)} title={!canRunAction('stopRecording', snapshot.state, hasActiveTest) ? disabledHint('stopRecording', snapshot.state, hasActiveTest) : undefined} onClick={() => runAction('stopRecording', async () => `记录已停止，当前状态：${stateText((await window.iso11820.stopRecording()).nextState)}`)}>停止记录</button>
+            <button disabled={busyAction === 'exportCurrent' || !canRunAction('exportCurrent', snapshot.state, hasActiveTest)} title={!canRunAction('exportCurrent', snapshot.state, hasActiveTest) ? disabledHint('exportCurrent', snapshot.state, hasActiveTest) : undefined} onClick={() => runAction('exportCurrent', async () => {
               const result = await window.iso11820.exportCurrent();
-              return `导出完成：${result.csvPath || result.excelPath || result.pdfPath}`;
+              return `导出完成：${result.csvPath || result.excelPath || result.pdfPath || '报告文件已生成'}`;
             })}>导出当前</button>
+          </div>
+
+          <div className="report-box">
+            <div>
+              <p className="eyebrow">REPORT OUTPUT</p>
+              <h3>报告与数据包</h3>
+              <span>{hasActiveTest ? `当前试验：${testForm.testid}` : '未新建试验，导出功能暂不可用'}</span>
+            </div>
+            <strong>{canRunAction('exportCurrent', snapshot.state, hasActiveTest) ? '可导出' : '等待记录完成'}</strong>
           </div>
 
           <div className="phenomenon-box">
@@ -518,7 +641,7 @@ function App() {
               <label><span>后称重 g</span><input value={phenomenon.postweight} onChange={(event) => patchPhenomenon('postweight', event.target.value)} /></label>
             </div>
             <textarea value={phenomenon.remark} onChange={(event) => patchPhenomenon('remark', event.target.value)} placeholder="记录熔融、开裂、冒烟等现象" />
-            <button className="soft-button full" onClick={() => runAction('phenomenon', savePhenomenon)}>保存现象</button>
+            <button className="soft-button full" disabled={busyAction === 'phenomenon' || !canRunAction('phenomenon', snapshot.state, hasActiveTest)} title={!canRunAction('phenomenon', snapshot.state, hasActiveTest) ? disabledHint('phenomenon', snapshot.state, hasActiveTest) : undefined} onClick={() => runAction('phenomenon', savePhenomenon)}>保存现象</button>
           </div>
         </section>
 
@@ -532,13 +655,19 @@ function App() {
             </div>
           </div>
           <div className="log-list">
+            {uiEvents.map((event) => (
+              <div key={event.id} className={`log-row ui-event ${event.tone}`}>
+                <time>{event.time}</time>
+                <span>{event.text}</span>
+              </div>
+            ))}
             {messages.slice(-12).reverse().map((message, index) => (
               <div key={`${message.time}-${index}`} className={isTerminalMessage(message) ? 'log-row terminal' : 'log-row'}>
                 <time>{message.time}</time>
                 <span>{message.message}</span>
               </div>
             ))}
-            {messages.length === 0 && <div className="empty-state">暂无本地消息</div>}
+            {messages.length === 0 && uiEvents.length === 0 && <div className="empty-state">暂无本地消息。操作提示、错误与核心服务广播会显示在这里。</div>}
           </div>
         </section>
 
@@ -548,7 +677,7 @@ function App() {
               <p className="eyebrow">ARCHIVE</p>
               <h2>历史查询</h2>
             </div>
-            <button className="soft-button" onClick={queryHistory}>查询</button>
+            <button className="soft-button" disabled={busyAction === 'queryHistory'} onClick={() => runAction('queryHistory', queryHistory)}>查询</button>
           </div>
           <div className="history-filters">
             <label><span>开始日期</span><input type="date" value={historyFilter.startDate} onChange={(event) => setHistoryFilter({ ...historyFilter, startDate: event.target.value })} /></label>
@@ -567,7 +696,7 @@ function App() {
                 ))}
               </tbody>
             </table>
-            {historyRows.length === 0 && <div className="empty-state">输入条件后查询历史试验</div>}
+            {historyRows.length === 0 && <div className="empty-state">{historyQueried ? '没有符合条件的历史试验，请调整日期、样品或操作员条件。' : '输入条件后查询历史试验；留空可查看全部本地记录。'}</div>}
           </div>
         </section>
 
@@ -577,7 +706,7 @@ function App() {
               <p className="eyebrow">CALIBRATION</p>
               <h2>九点温度校准</h2>
             </div>
-            <button className="soft-button" onClick={saveCalibration}>保存校准</button>
+            <button className="soft-button" disabled={busyAction === 'saveCalibration'} onClick={() => runAction('saveCalibration', saveCalibration)}>保存校准</button>
           </div>
           <div className="calibration-meta">
             <label><span>类型</span><select value={calibration.calibrationType} onChange={(event) => setCalibration({ ...calibration, calibrationType: event.target.value as CalibrationInput['calibrationType'] })}><option value="Surface">表面</option><option value="Center">中心</option></select></label>

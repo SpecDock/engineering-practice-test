@@ -4,6 +4,7 @@ Data/
 TestData/
 Reports/
 SmokeData/
+release/
 *.log
 *.tmp
 .DS_Store
