@@ -1,0 +1,292 @@
+import { EventEmitter } from 'node:events';
+import type {
+  AppConfig,
+  CalibrationInput,
+  CalibrationResult,
+  CreateTestRequest,
+  CreateTestResponse,
+  DataBroadcastEventArgs,
+  ExportResult,
+  LoginRequest,
+  LoginResponse,
+  MasterMessage,
+  PhenomenonCalculatedResult,
+  PhenomenonRecordRequest,
+  QueryHistoryRequest,
+  QueryHistoryResponse,
+  RuntimeStatus,
+  SensorDictionary,
+  StateChangeResponse,
+  TemperatureDisplaySnapshot,
+  TemperatureSample,
+  TestState,
+} from '../../shared/types.js';
+import { SqliteStore } from '../db/SqliteStore.js';
+import { ExportService } from './ExportService.js';
+import { SensorSimulator } from './SensorSimulator.js';
+
+interface ServiceEvents {
+  dataBroadcast: [DataBroadcastEventArgs];
+}
+
+class TypedEmitter extends EventEmitter {
+  public override on<K extends keyof ServiceEvents>(eventName: K, listener: (...args: ServiceEvents[K]) => void): this {
+    return super.on(eventName, listener);
+  }
+  public override emit<K extends keyof ServiceEvents>(eventName: K, ...args: ServiceEvents[K]): boolean {
+    return super.emit(eventName, ...args);
+  }
+}
+
+export class TestControllerService extends TypedEmitter {
+  private readonly simulator: SensorSimulator;
+  private readonly exporter: ExportService;
+  private timer: NodeJS.Timeout | null = null;
+  private state: TestState = 'Idle';
+  private isHeating = false;
+  private recordingSeconds = 0;
+  private latestSensors: SensorDictionary;
+  private messages: MasterMessage[] = [];
+  private samples: TemperatureSample[] = [];
+  private pidOutputs: number[] = [];
+  private furnaceHistory: Array<{ second: number; tf1: number; tf2: number }> = [];
+  private currentTest: CreateTestRequest | null = null;
+  private savedResult: PhenomenonCalculatedResult | null = null;
+
+  public constructor(
+    private readonly config: AppConfig,
+    private readonly store: SqliteStore,
+  ) {
+    super();
+    this.simulator = new SensorSimulator(config);
+    this.exporter = new ExportService(config);
+    this.latestSensors = this.simulator.getSnapshot();
+  }
+
+  public async init(): Promise<void> {
+    await this.store.init();
+    this.startDaqWorker();
+  }
+
+  public async shutdown(): Promise<void> {
+    if (this.timer !== null) clearInterval(this.timer);
+    this.timer = null;
+    await this.store.save();
+  }
+
+  public login(request: LoginRequest): Promise<LoginResponse> {
+    return Promise.resolve(this.store.login(request));
+  }
+
+  public async createTest(request: CreateTestRequest): Promise<CreateTestResponse> {
+    if (this.currentTest !== null && this.state !== 'Idle') throw new Error('当前有活动试验，不能新建');
+    this.currentTest = request;
+    this.samples = [];
+    this.recordingSeconds = 0;
+    this.savedResult = null;
+    this.store.upsertProduct(request);
+    this.store.insertTestInitial(request);
+    await this.store.save();
+    this.pushMessage(`新建试验 ${request.productid}/${request.testid}`);
+    return { ok: true, productid: request.productid, testid: request.testid, nextState: this.state === 'Idle' ? 'Idle' : 'Preparing' };
+  }
+
+  public startHeating(): Promise<StateChangeResponse> {
+    if (this.state !== 'Idle' && this.state !== 'Complete') throw new Error('当前状态不能开始升温');
+    const previousState = this.state;
+    this.state = 'Preparing';
+    this.isHeating = true;
+    const message = this.pushMessage('开始升温');
+    return Promise.resolve({ ok: true, previousState, nextState: this.state, message });
+  }
+
+  public stopHeating(): Promise<StateChangeResponse> {
+    if (this.state === 'Recording') throw new Error('记录中不能停止升温');
+    const previousState = this.state;
+    this.isHeating = false;
+    this.state = 'Idle';
+    const message = this.pushMessage('停止升温，开始降温');
+    return Promise.resolve({ ok: true, previousState, nextState: this.state, message });
+  }
+
+  public startRecording(): Promise<StateChangeResponse> {
+    if (this.state !== 'Ready') throw new Error('未达到 Ready，不能开始记录');
+    if (this.currentTest === null) throw new Error('请先新建试验');
+    const previousState = this.state;
+    const avgPower = this.pidOutputs.length === 0 ? this.config.Hardware.ConstPower : this.pidOutputs.reduce((a, b) => a + b, 0) / this.pidOutputs.length;
+    this.currentTest = { ...this.currentTest, constPower: Math.round(avgPower) };
+    this.samples = [];
+    this.recordingSeconds = 0;
+    this.state = 'Recording';
+    const message = this.pushMessage(`开始记录，恒功率 ${Math.round(avgPower)}`);
+    return Promise.resolve({ ok: true, previousState, nextState: this.state, message });
+  }
+
+  public stopRecording(): Promise<StateChangeResponse> {
+    if (this.state !== 'Recording') throw new Error('当前状态不能停止记录');
+    const previousState = this.state;
+    this.state = this.samples.length > 0 ? 'Complete' : 'Preparing';
+    const message = this.pushMessage('手动终止记录');
+    return Promise.resolve({ ok: true, previousState, nextState: this.state, message });
+  }
+
+  public async savePhenomenon(request: PhenomenonRecordRequest): Promise<PhenomenonCalculatedResult> {
+    const test = this.requireCurrentTest(request.productid, request.testid);
+    const initial = this.samples[0] ?? this.sampleFromSensors(0);
+    const final = this.samples[this.samples.length - 1] ?? initial;
+    const lostweight = test.preweight - request.postweight;
+    const lostweight_per = test.preweight === 0 ? 0 : (lostweight / test.preweight) * 100;
+    const result: PhenomenonCalculatedResult = {
+      lostweight,
+      lostweight_per,
+      deltaTf1: final.temp1 - initial.temp1,
+      deltaTf2: final.temp2 - initial.temp2,
+      deltaTs: final.tempSurface - initial.tempSurface,
+      deltaTc: final.tempCenter - initial.tempCenter,
+      deltatf: final.tempSurface - initial.tempSurface,
+      passed: false,
+    };
+    const flameDuration = request.hasContinuousFlame ? request.flameDurationSecond ?? 0 : 0;
+    result.passed = result.deltatf <= 50 && result.lostweight_per <= 50 && flameDuration < 5;
+    this.store.updateTestResult({
+      request: test,
+      phenomenon: result,
+      totalSeconds: this.recordingSeconds,
+      flameStartSecond: request.hasContinuousFlame ? request.flameStartSecond ?? 0 : 0,
+      flameDurationSecond: flameDuration,
+      phenocode: request.hasContinuousFlame ? 'continuous_flame' : '',
+      memo: request.remark ?? null,
+      samples: this.samples,
+    });
+    await this.store.save();
+    this.savedResult = result;
+    this.pushMessage(`保存试验记录：${result.passed ? '通过' : '不通过'}`);
+    await this.exportCurrent();
+    return result;
+  }
+
+  public queryHistory(request: QueryHistoryRequest): Promise<QueryHistoryResponse> {
+    return Promise.resolve(this.store.queryHistory(request));
+  }
+
+  public exportCurrent(): Promise<ExportResult> {
+    if (this.currentTest === null) throw new Error('没有当前试验可导出');
+    return this.exporter.export({ test: this.currentTest, samples: this.samples, result: this.savedResult });
+  }
+
+  public async saveCalibration(input: CalibrationInput): Promise<CalibrationResult> {
+    const apparatus = this.store.getApparatus();
+    const result = this.store.insertCalibration(input, apparatus.apparatusid);
+    await this.store.save();
+    this.pushMessage(`保存${input.calibrationType}校准记录`);
+    return result;
+  }
+
+  public getStatus(): RuntimeStatus {
+    return {
+      config: this.config,
+      apparatus: this.store.getApparatus(),
+      snapshot: this.snapshot(),
+      messages: [...this.messages],
+      samples: [...this.samples],
+    };
+  }
+
+  private startDaqWorker(): void {
+    if (this.timer !== null) return;
+    this.timer = setInterval(() => this.tick(), 800);
+  }
+
+  private tick(): void {
+    const update = this.simulator.update({ state: this.state, isRecording: this.state === 'Recording', isHeating: this.isHeating });
+    this.latestSensors = update.sensors;
+    this.pidOutputs.push(this.estimatePidOutput(update.sensors));
+    if (this.pidOutputs.length > 600) this.pidOutputs.shift();
+
+    const stableRange = update.sensors.TF1 >= 745 && update.sensors.TF1 <= 755 && update.sensors.TF2 >= 745 && update.sensors.TF2 <= 755;
+    if (this.state === 'Preparing' && update.isStable && stableRange) {
+      this.state = 'Ready';
+      this.pushMessage('炉温稳定，进入 Ready');
+    } else if (this.state === 'Ready' && !stableRange) {
+      this.state = 'Preparing';
+      this.pushMessage('炉温跌出稳定范围，回到 Preparing');
+    }
+
+    let latestSample: TemperatureSample | undefined;
+    if (this.state === 'Recording') {
+      this.recordingSeconds += 1;
+      latestSample = this.sampleFromSensors(this.recordingSeconds);
+      this.samples.push(latestSample);
+      this.furnaceHistory.push({ second: this.recordingSeconds, tf1: latestSample.temp1, tf2: latestSample.temp2 });
+      if (this.furnaceHistory.length > 600) this.furnaceHistory.shift();
+      if (this.shouldAutoComplete()) {
+        this.state = 'Complete';
+        this.pushMessage('达到终止条件，记录完成');
+      }
+    }
+    this.emit('dataBroadcast', { messages: [...this.messages], snapshot: this.snapshot(), latestSample });
+  }
+
+  private shouldAutoComplete(): boolean {
+    const test = this.currentTest;
+    if (test === null) return false;
+    const targetSeconds = test.durationMode === 'standard_60_minutes'
+      ? 3600
+      // 源文档未给 TargetDurationSeconds 默认值；自定义模式仅使用 UI 请求中的 customDurationMinutes。
+      : Math.max(1, test.customDurationMinutes ?? 60) * 60;
+    if (this.recordingSeconds >= targetSeconds) return true;
+    if (test.durationMode !== 'standard_60_minutes') return false;
+    const checkpoints = new Set([1800, 2100, 2400, 2700, 3000, 3300]);
+    if (!checkpoints.has(this.recordingSeconds)) return false;
+    const drift = this.calculateDrift();
+    if (drift === null) return false;
+    return Math.abs(drift) <= this.config.Simulation.MaxTemperatureDriftPerTenMinutes;
+  }
+
+  private calculateDrift(): number | null {
+    if (this.furnaceHistory.length < 600) return null;
+    const first = this.furnaceHistory[0];
+    const last = this.furnaceHistory[this.furnaceHistory.length - 1];
+    if (first === undefined || last === undefined) return null;
+    return ((last.tf1 + last.tf2) / 2) - ((first.tf1 + first.tf2) / 2);
+  }
+
+  private snapshot(): TemperatureDisplaySnapshot {
+    return {
+      sensors: this.latestSensors,
+      state: this.state,
+      recordingSeconds: this.recordingSeconds,
+      driftCPer10Min: this.calculateDrift(),
+      productid: this.currentTest?.productid ?? null,
+    };
+  }
+
+  private sampleFromSensors(timeSeconds: number): TemperatureSample {
+    return {
+      timeSeconds,
+      temp1: this.latestSensors.TF1,
+      temp2: this.latestSensors.TF2,
+      tempSurface: this.latestSensors.TS,
+      tempCenter: this.latestSensors.TC,
+      tempCalibration: this.latestSensors.TCal,
+    };
+  }
+
+  private pushMessage(message: string): MasterMessage {
+    const item = { time: new Date().toTimeString().slice(0, 8), message };
+    this.messages.push(item);
+    if (this.messages.length > 200) this.messages.shift();
+    return item;
+  }
+
+  private requireCurrentTest(productid: string, testid: string): CreateTestRequest {
+    if (this.currentTest === null) throw new Error('没有当前试验');
+    if (this.currentTest.productid !== productid || this.currentTest.testid !== testid) throw new Error('试验标识不匹配');
+    return this.currentTest;
+  }
+
+  private estimatePidOutput(sensors: SensorDictionary): number {
+    const error = this.config.Hardware.PidTemperature - ((sensors.TF1 + sensors.TF2) / 2);
+    return Math.max(0, Math.min(25600, this.config.Hardware.ConstPower + error * 8));
+  }
+}
