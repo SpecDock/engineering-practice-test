@@ -188,6 +188,14 @@ function compactRequest(filter: HistoryFilterState): QueryHistoryRequest {
   };
 }
 
+function getDesktopApi() {
+  const api = window.iso11820;
+  if (api === undefined) {
+    throw new Error('本地预加载通道未注入，请重新启动桌面程序；如果仍然出现，请重新运行 npm run package。');
+  }
+  return api;
+}
+
 function canRunAction(action: ActionKey, state: TestState, hasActiveTest: boolean): boolean {
   if (action === 'create') return state === 'Idle' || state === 'Complete';
   if (action === 'startHeating') return hasActiveTest && (state === 'Idle' || state === 'Preparing' || state === 'Ready');
@@ -247,7 +255,7 @@ function LoginPanel({ onLogin }: { onLogin: (session: Session) => void }) {
     setBusy(true);
     setError('');
     try {
-      const result = await window.iso11820.login({ role, pwd });
+      const result = await getDesktopApi().login({ role, pwd });
       if (result.ok) {
         onLogin(result);
         return;
@@ -391,14 +399,14 @@ function App() {
   useEffect(() => {
     if (!session) return;
     let disposed = false;
-    window.iso11820
+    getDesktopApi()
       .getStatus()
       .then((runtimeStatus) => {
         if (!disposed) setStatus(runtimeStatus);
       })
       .catch((err) => showNotice('danger', err instanceof Error ? err.message : '读取本地状态失败'));
 
-    const unsubscribe = window.iso11820.onDataBroadcast((runtimeStatus) => {
+    const unsubscribe = getDesktopApi().onDataBroadcast((runtimeStatus) => {
       setStatus(runtimeStatus);
     });
     return () => {
@@ -490,7 +498,7 @@ function App() {
       constPower: status?.apparatus.constpower ?? status?.config.Hardware.ConstPower ?? 0,
     };
 
-    const response = await window.iso11820.createTest(request);
+    const response = await getDesktopApi().createTest(request);
     setHasCreatedTest(true);
     return `试验 ${response.testid} 已创建，状态进入 ${stateText(response.nextState)}`;
   }
@@ -505,19 +513,19 @@ function App() {
       postweight: toNumber(phenomenon.postweight),
       remark: phenomenon.remark || undefined,
     };
-    const result: PhenomenonCalculatedResult = await window.iso11820.savePhenomenon(request);
+    const result: PhenomenonCalculatedResult = await getDesktopApi().savePhenomenon(request);
     return `现象已保存，质量损失 ${result.lostweight_per.toFixed(2)}%，判定${result.passed ? '通过' : '未通过'}`;
   }
 
   async function queryHistory() {
-    const response = await window.iso11820.queryHistory(compactRequest(historyFilter));
+    const response = await getDesktopApi().queryHistory(compactRequest(historyFilter));
     setHistoryRows(response.rows);
     setHistoryQueried(true);
     return `查询完成，共 ${response.rows.length} 条记录`;
   }
 
   async function saveCalibration() {
-    const response = await window.iso11820.saveCalibration({
+    const response = await getDesktopApi().saveCalibration({
       calibrationType: calibration.calibrationType,
       operator: calibration.operator,
       remarks: calibration.remarks,
@@ -613,12 +621,12 @@ function App() {
             </div>
           </div>
           <div className="control-grid">
-            <button disabled={busyAction === 'startHeating' || !canRunAction('startHeating', snapshot.state, hasActiveTest)} title={!canRunAction('startHeating', snapshot.state, hasActiveTest) ? disabledHint('startHeating', snapshot.state, hasActiveTest) : undefined} onClick={() => runAction('startHeating', async () => `升温指令已发送，当前状态：${stateText((await window.iso11820.startHeating()).nextState)}`)}>开始升温</button>
-            <button disabled={busyAction === 'stopHeating' || !canRunAction('stopHeating', snapshot.state, hasActiveTest)} title={!canRunAction('stopHeating', snapshot.state, hasActiveTest) ? disabledHint('stopHeating', snapshot.state, hasActiveTest) : undefined} onClick={() => runAction('stopHeating', async () => `升温已停止，当前状态：${stateText((await window.iso11820.stopHeating()).nextState)}`)}>停止升温</button>
-            <button disabled={busyAction === 'startRecording' || !canRunAction('startRecording', snapshot.state, hasActiveTest)} title={!canRunAction('startRecording', snapshot.state, hasActiveTest) ? disabledHint('startRecording', snapshot.state, hasActiveTest) : undefined} onClick={() => runAction('startRecording', async () => `记录已开始，当前状态：${stateText((await window.iso11820.startRecording()).nextState)}`)}>开始记录</button>
-            <button disabled={busyAction === 'stopRecording' || !canRunAction('stopRecording', snapshot.state, hasActiveTest)} title={!canRunAction('stopRecording', snapshot.state, hasActiveTest) ? disabledHint('stopRecording', snapshot.state, hasActiveTest) : undefined} onClick={() => runAction('stopRecording', async () => `记录已停止，当前状态：${stateText((await window.iso11820.stopRecording()).nextState)}`)}>停止记录</button>
+            <button disabled={busyAction === 'startHeating' || !canRunAction('startHeating', snapshot.state, hasActiveTest)} title={!canRunAction('startHeating', snapshot.state, hasActiveTest) ? disabledHint('startHeating', snapshot.state, hasActiveTest) : undefined} onClick={() => runAction('startHeating', async () => `升温指令已发送，当前状态：${stateText((await getDesktopApi().startHeating()).nextState)}`)}>开始升温</button>
+            <button disabled={busyAction === 'stopHeating' || !canRunAction('stopHeating', snapshot.state, hasActiveTest)} title={!canRunAction('stopHeating', snapshot.state, hasActiveTest) ? disabledHint('stopHeating', snapshot.state, hasActiveTest) : undefined} onClick={() => runAction('stopHeating', async () => `升温已停止，当前状态：${stateText((await getDesktopApi().stopHeating()).nextState)}`)}>停止升温</button>
+            <button disabled={busyAction === 'startRecording' || !canRunAction('startRecording', snapshot.state, hasActiveTest)} title={!canRunAction('startRecording', snapshot.state, hasActiveTest) ? disabledHint('startRecording', snapshot.state, hasActiveTest) : undefined} onClick={() => runAction('startRecording', async () => `记录已开始，当前状态：${stateText((await getDesktopApi().startRecording()).nextState)}`)}>开始记录</button>
+            <button disabled={busyAction === 'stopRecording' || !canRunAction('stopRecording', snapshot.state, hasActiveTest)} title={!canRunAction('stopRecording', snapshot.state, hasActiveTest) ? disabledHint('stopRecording', snapshot.state, hasActiveTest) : undefined} onClick={() => runAction('stopRecording', async () => `记录已停止，当前状态：${stateText((await getDesktopApi().stopRecording()).nextState)}`)}>停止记录</button>
             <button disabled={busyAction === 'exportCurrent' || !canRunAction('exportCurrent', snapshot.state, hasActiveTest)} title={!canRunAction('exportCurrent', snapshot.state, hasActiveTest) ? disabledHint('exportCurrent', snapshot.state, hasActiveTest) : undefined} onClick={() => runAction('exportCurrent', async () => {
-              const result = await window.iso11820.exportCurrent();
+              const result = await getDesktopApi().exportCurrent();
               return `导出完成：${result.csvPath || result.excelPath || result.pdfPath || '报告文件已生成'}`;
             })}>导出当前</button>
           </div>
