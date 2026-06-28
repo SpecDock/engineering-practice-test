@@ -49,6 +49,7 @@ async function main() {
   if (await exists(targetExe)) await fs.rm(targetExe, { force: true });
   await fs.rename(sourceExe, targetExe);
   await copyRequiredAppFiles();
+  await fs.mkdir(path.join(outDir, 'output'), { recursive: true });
   const marker = {
     productName: 'ISO11820Desktop',
     generatedAt: new Date().toISOString(),

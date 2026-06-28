@@ -67,11 +67,13 @@ npm run package:builder
 运行数据不会提交到 git：
 
 - `Data/ISO11820.db`：SQLite 数据库。
-- `TestData/{productid}/{testid}/sensor_data.csv`：温度 CSV。
-- `Reports/*.xlsx`、`Reports/*.pdf`：导出报告。
+- `output/{productid}/{testid}/sensor_data.csv`：温度 CSV。
+- `output/*.xlsx`、`output/*.pdf`：导出报告。
 - `SmokeData/`：自动化烟测临时数据。
 
-源码运行时默认使用项目目录；打包后的 `ISO11820Desktop.exe` 默认使用系统 `userData` 目录保存运行数据。若验收时要求数据也落在指定目录，可设置环境变量 `ISO11820_BASE_DIR` 后启动应用。
+源码运行时默认导出到项目目录的 `output/`。打包后的 `ISO11820Desktop.exe` 默认把导出文件保存到 exe 同级的 `output/`，也就是 `release/win-unpacked/output/`。
+
+打包后的 SQLite 数据库仍默认使用系统 `userData` 目录，避免安装目录权限问题。若需要指定数据库目录，可设置环境变量 `ISO11820_BASE_DIR`；若需要指定导出目录，可设置 `ISO11820_OUTPUT_DIR`。
 
 ## 架构边界
 

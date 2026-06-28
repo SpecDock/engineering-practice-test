@@ -4,6 +4,7 @@ Data/
 TestData/
 Reports/
 SmokeData/
+output/
 release/
 *.log
 *.tmp

@@ -77,7 +77,8 @@ function asObject<T>(payload: unknown): T {
 app.whenReady().then(async () => {
   const appRoot = app.getAppPath();
   const dataRoot = process.env.ISO11820_BASE_DIR ?? (app.isPackaged ? app.getPath('userData') : process.cwd());
-  const config = createDefaultConfig(dataRoot);
+  const exportRoot = process.env.ISO11820_OUTPUT_DIR ?? (app.isPackaged ? path.join(path.dirname(process.execPath), 'output') : path.join(process.cwd(), 'output'));
+  const config = createDefaultConfig(dataRoot, exportRoot);
   const store = new SqliteStore(config.Database.SqlitePath, path.join(appRoot, 'node_modules', 'sql.js', 'dist'));
   service = new TestControllerService(config, store);
   await service.init();
