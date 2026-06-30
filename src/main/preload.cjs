@@ -1,3 +1,6 @@
+/**
+ * CommonJS 预加载脚本，用于为渲染进程暴露安全的桌面 IPC API。
+ */
 const { contextBridge, ipcRenderer } = require('electron');
 
 const IPC_CHANNELS = {
@@ -15,6 +18,9 @@ const IPC_CHANNELS = {
   dataBroadcast: 'iso:data-broadcast',
 };
 
+/**
+ * 通用 IPC 调用封装，返回成功数据或抛出错误。
+ */
 async function invoke(channel, payload) {
   const result = await ipcRenderer.invoke(channel, payload);
   if (result && result.ok) return result.data;

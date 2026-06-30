@@ -9,6 +9,8 @@ const outDir = path.join(root, 'release', 'win-unpacked');
 const appDir = path.join(outDir, 'resources', 'app');
 const execFileAsync = promisify(execFile);
 
+// Check whether a packaging input exists without treating a missing file as a
+// fatal error.
 async function exists(filePath) {
   try {
     await fs.access(filePath);
@@ -18,6 +20,7 @@ async function exists(filePath) {
   }
 }
 
+// Assemble the files Electron needs at runtime inside resources/app.
 async function copyRequiredAppFiles() {
   await fs.mkdir(appDir, { recursive: true });
   await fs.cp(path.join(root, 'dist'), path.join(appDir, 'dist'), { recursive: true });
@@ -30,6 +33,7 @@ async function copyRequiredAppFiles() {
 }
 
 async function main() {
+  // Retry Electron's binary download if the npm install left dist incomplete.
   if (!(await exists(path.join(electronDist, 'electron.exe')))) {
     console.log('package-local: electron.exe missing, trying Electron mirror install...');
     await execFileAsync(process.execPath, [path.join(root, 'node_modules', 'electron', 'install.js')], {
@@ -44,6 +48,7 @@ async function main() {
   await fs.rm(outDir, { recursive: true, force: true });
   await fs.mkdir(path.dirname(outDir), { recursive: true });
   await fs.cp(electronDist, outDir, { recursive: true });
+  // Rename the stock Electron executable to the application name.
   const sourceExe = path.join(outDir, 'electron.exe');
   const targetExe = path.join(outDir, 'ISO11820Desktop.exe');
   if (await exists(targetExe)) await fs.rm(targetExe, { force: true });

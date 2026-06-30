@@ -7,6 +7,7 @@ import { TestControllerService } from '../dist/main/main/services/TestController
 const root = process.cwd();
 const smokeRoot = path.join(root, 'SmokeData');
 
+// Tiny assertion helper keeps the smoke test free from a separate test runner.
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -21,6 +22,7 @@ async function assertNonEmptyFile(filePath, label) {
 }
 
 async function waitForReady(service) {
+  // Sensor stabilization is asynchronous even with accelerated smoke settings.
   const deadline = Date.now() + 12_000;
   while (Date.now() < deadline) {
     const status = service.getStatus();
@@ -31,6 +33,7 @@ async function waitForReady(service) {
 }
 
 async function main() {
+  // Smoke runs use disposable data so they never touch operator records.
   await fs.rm(smokeRoot, { recursive: true, force: true });
   const config = structuredClone(defaultConfig);
   config.Database.SqlitePath = path.join(smokeRoot, 'Data', 'ISO11820-smoke.db');
@@ -70,6 +73,7 @@ async function main() {
     });
     await service.startHeating();
     await waitForReady(service);
+    // Record briefly, then verify result persistence, history and report export.
     await service.startRecording();
     await delay(2200);
     await service.stopRecording();

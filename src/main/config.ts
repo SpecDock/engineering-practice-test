@@ -1,5 +1,5 @@
 /**
- * 西南石油大学结课作业配置
+ * 应用默认配置：包含数据库路径、硬件参数、模拟器参数、文件存储和报告输出设置。
  */
 import path from 'node:path';
 import type { AppConfig } from '../shared/types.js';

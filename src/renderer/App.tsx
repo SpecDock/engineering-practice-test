@@ -19,6 +19,9 @@ import type {
 
 type Session = Extract<LoginResponse, { ok: true }>;
 
+/**
+ * 新建试验表单的本地状态结构。
+ */
 interface TestFormState {
   productid: string;
   testid: string;
@@ -34,6 +37,9 @@ interface TestFormState {
   operator: string;
 }
 
+/**
+ * 现象记录表单的本地状态结构。
+ */
 interface PhenomenonState {
   hasContinuousFlame: boolean;
   flameStartSecond: string;
@@ -42,6 +48,9 @@ interface PhenomenonState {
   remark: string;
 }
 
+/**
+ * 历史查询筛选条件的局部状态。
+ */
 interface HistoryFilterState {
   startDate: string;
   endDate: string;
@@ -49,6 +58,9 @@ interface HistoryFilterState {
   operator: string;
 }
 
+/**
+ * 校准录入表单的本地状态结构。
+ */
 interface CalibrationState {
   calibrationType: CalibrationInput['calibrationType'];
   operator: string;
@@ -56,11 +68,17 @@ interface CalibrationState {
   points: string[];
 }
 
+/**
+ * 顶部提示通知的展示状态。
+ */
 interface UiNotice {
   tone: 'ok' | 'warn' | 'danger';
   text: string;
 }
 
+/**
+ * 应用内部事件日志项。
+ */
 interface UiEvent {
   id: number;
   time: string;
@@ -68,6 +86,9 @@ interface UiEvent {
   text: string;
 }
 
+/**
+ * 页面可触发的操作类型。
+ */
 type ActionKey =
   | 'create'
   | 'startHeating'
@@ -98,6 +119,9 @@ const actionLabels: Record<ActionKey, string> = {
   saveCalibration: '保存校准',
 };
 
+/**
+ * 温度曲线 SVG 绘制区域参数。
+ */
 const chart = {
   width: 820,
   height: 280,
@@ -147,11 +171,17 @@ const initialCalibration: CalibrationState = {
   points: ['750', '751', '749', '750', '752', '750', '749', '751', '750'],
 };
 
+/**
+ * 将字符串转换为数值，转换失败时返回默认值。
+ */
 function toNumber(value: string, fallback = 0): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/**
+ * 将秒数格式化为 HH:MM:SS 显示格式。
+ */
 function formatSeconds(totalSeconds: number): string {
   const safeSeconds = Math.max(0, Math.floor(totalSeconds));
   const hours = Math.floor(safeSeconds / 3600);
@@ -160,10 +190,16 @@ function formatSeconds(totalSeconds: number): string {
   return [hours, minutes, seconds].map((part) => String(part).padStart(2, '0')).join(':');
 }
 
+/**
+ * 格式化当前时间字符串，用于事件日志时间戳。
+ */
 function formatClock(date = new Date()): string {
   return date.toLocaleTimeString('zh-CN', { hour12: false });
 }
 
+/**
+ * 将内部状态名称映射为中文显示文本。
+ */
 function stateText(state: TestState): string {
   const map: Record<TestState, string> = {
     Idle: '待机',
@@ -175,10 +211,16 @@ function stateText(state: TestState): string {
   return map[state];
 }
 
+/**
+ * 判断一条消息是否属于终止类提示。
+ */
 function isTerminalMessage(message: MasterMessage): boolean {
   return /终止|停止|中止|结束|Complete|Stop/i.test(message.message);
 }
 
+/**
+ * 将筛选表单值压缩为历史查询请求参数。
+ */
 function compactRequest(filter: HistoryFilterState): QueryHistoryRequest {
   return {
     startDate: filter.startDate || undefined,
@@ -188,6 +230,9 @@ function compactRequest(filter: HistoryFilterState): QueryHistoryRequest {
   };
 }
 
+/**
+ * 访问预加载层暴露的本地桌面 API。
+ */
 function getDesktopApi() {
   const api = window.iso11820;
   if (api === undefined) {
@@ -196,6 +241,9 @@ function getDesktopApi() {
   return api;
 }
 
+/**
+ * 根据当前状态和是否已创建试验判断按钮操作是否可用。
+ */
 function canRunAction(action: ActionKey, state: TestState, hasActiveTest: boolean): boolean {
   if (action === 'create') return state === 'Idle' || state === 'Complete';
   if (action === 'startHeating') return hasActiveTest && (state === 'Idle' || state === 'Preparing' || state === 'Ready');
@@ -207,11 +255,17 @@ function canRunAction(action: ActionKey, state: TestState, hasActiveTest: boolea
   return true;
 }
 
+/**
+ * 计算禁用按钮时的提示文本。
+ */
 function disabledHint(action: ActionKey, state: TestState, hasActiveTest: boolean): string {
   if (!hasActiveTest && action !== 'create' && action !== 'queryHistory' && action !== 'saveCalibration') return '请先创建试验';
   return `${stateText(state)}状态下不能${actionLabels[action]}`;
 }
 
+/**
+ * 构建 SVG 折线图路径字符串，用于绘制温度曲线。
+ */
 function buildPath(samples: readonly TemperatureSample[], field: (typeof channelLabels)[number]['field']): string {
   const recent = samples.slice(-90);
   if (recent.length < 2) return '';
@@ -230,6 +284,9 @@ function buildPath(samples: readonly TemperatureSample[], field: (typeof channel
     .join(' ');
 }
 
+/**
+ * 登录组件，负责角色选择、密码输入和本地登录请求。
+ */
 function LoginPanel({ onLogin }: { onLogin: (session: Session) => void }) {
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [role, setRole] = useState<Session['role']>('admin');
@@ -299,6 +356,9 @@ function LoginPanel({ onLogin }: { onLogin: (session: Session) => void }) {
   );
 }
 
+/**
+ * 仪表卡片组件，用于显示单通道实时温度值。
+ */
 function LedCard({ label, value, accent }: { label: string; value: number; accent: string }) {
   const cardRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -315,6 +375,9 @@ function LedCard({ label, value, accent }: { label: string; value: number; accen
   );
 }
 
+/**
+ * 渲染温度曲线图表的组件。
+ */
 function TemperatureChart({ samples }: { samples: readonly TemperatureSample[] }) {
   const paths = useMemo(
     () => channelLabels.map((channel) => ({ ...channel, path: buildPath(samples, channel.field) })),

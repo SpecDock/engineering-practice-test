@@ -1,3 +1,8 @@
+/**
+ * 导出服务模块：负责将温度样本和试验结果导出为 CSV、Excel、PDF 等格式。
+ *
+ * 该服务使用本地文件系统创建目标目录，并基于试验数据生成结构化报告。
+ */
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import ExcelJS from 'exceljs';
@@ -10,12 +15,18 @@ export interface ExportInput {
   result: PhenomenonCalculatedResult | null;
 }
 
+/**
+ * 单通道统计数据结构：用于记录最大值、终值以及温升。
+ */
 interface ChannelStats {
   max: number;
   final: number;
   delta: number;
 }
 
+/**
+ * 导出统计信息结构：包含样本总数、时长和各温度通道统计数据。
+ */
 interface ExportStats {
   totalSamples: number;
   durationSeconds: number;
@@ -25,9 +36,15 @@ interface ExportStats {
   tc: ChannelStats;
 }
 
+/**
+ * 导出服务类，封装 CSV、Excel 和 PDF 导出逻辑。
+ */
 export class ExportService {
   public constructor(private readonly config: AppConfig) {}
 
+  /**
+   * 导出当前试验数据到本地文件，包括 CSV、Excel，以及可选 PDF 报告。
+   */
   public async export(input: ExportInput): Promise<ExportResult> {
     const testDir = path.join(this.config.FileStorage.TestDataDirectory, input.test.productid, input.test.testid);
     await fs.mkdir(testDir, { recursive: true });
@@ -41,6 +58,9 @@ export class ExportService {
     return { csvPath, excelPath, pdfPath };
   }
 
+  /**
+   * 将温度样本写入 CSV，便于后续导入和数据处理。
+   */
   public async writeCsv(csvPath: string, samples: readonly TemperatureSample[]): Promise<void> {
     await fs.mkdir(path.dirname(csvPath), { recursive: true });
     const lines = ['Time,Temp1,Temp2,TempSurface,TempCenter,TempCalibration'];
@@ -50,6 +70,9 @@ export class ExportService {
     await fs.writeFile(csvPath, `${lines.join('\n')}\n`, 'utf8');
   }
 
+  /**
+   * 生成 Excel 报表，包括试验信息、统计判断、温度数据与曲线数据。
+   */
   private async writeExcel(excelPath: string, input: ExportInput): Promise<void> {
     const workbook = new ExcelJS.Workbook();
     const stats = calculateStats(input.samples);
@@ -106,6 +129,9 @@ export class ExportService {
     await workbook.xlsx.writeFile(excelPath);
   }
 
+  /**
+   * 生成 PDF 报告文件，包含基本试验信息和温度曲线绘制内容。
+   */
   private async writePdf(pdfPath: string, input: ExportInput): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       const document = new PDFDocument({ margin: 48 });
@@ -138,6 +164,9 @@ export class ExportService {
   }
 }
 
+/**
+ * 计算样本统计信息，包括各温度通道的最大值、终值和温升。
+ */
 function calculateStats(samples: readonly TemperatureSample[]): ExportStats {
   const first = samples[0] ?? { timeSeconds: 0, temp1: 0, temp2: 0, tempSurface: 0, tempCenter: 0, tempCalibration: 0 };
   const last = samples[samples.length - 1] ?? first;
@@ -152,6 +181,9 @@ function calculateStats(samples: readonly TemperatureSample[]): ExportStats {
   };
 }
 
+/**
+ * 在 PDF 中绘制温度曲线图表和图例。
+ */
 function drawTemperatureChart(document: PDFKit.PDFDocument, samples: readonly TemperatureSample[]): void {
   const left = 56;
   const top = document.y + 28;
@@ -193,6 +225,9 @@ function drawTemperatureChart(document: PDFKit.PDFDocument, samples: readonly Te
   drawLegend(document, left + 360, legendTop, '#ff7f0e', 'TC Center');
 }
 
+/**
+ * 绘制单条温度曲线系列。
+ */
 function drawSeries(
   document: PDFKit.PDFDocument,
   samples: readonly TemperatureSample[],
@@ -212,6 +247,9 @@ function drawSeries(
   document.stroke();
 }
 
+/**
+ * 绘制图例文本和颜色标识。
+ */
 function drawLegend(document: PDFKit.PDFDocument, x: number, y: number, color: string, label: string): void {
   document.strokeColor(color).lineWidth(2).moveTo(x, y + 6).lineTo(x + 18, y + 6).stroke();
   document.fillColor('#333333').fontSize(8).text(label, x + 22, y, { width: 92 });

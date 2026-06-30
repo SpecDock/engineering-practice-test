@@ -1,25 +1,40 @@
 import type { AppConfig, SensorDictionary, TestState } from '../../shared/types.js';
 
+/**
+ * 传感器更新请求参数，表示当前试验状态和运行模式。
+ */
 export interface SensorUpdateInput {
   state: TestState;
   isRecording: boolean;
   isHeating: boolean;
 }
 
+/**
+ * 传感器更新结果，包含当前传感器读数和是否已稳定。
+ */
 export interface SensorUpdateResult {
   sensors: SensorDictionary;
   isStable: boolean;
 }
 
+/**
+ * 模拟器类，用于在本地运行环境中模拟炉温、表面温度、中心温度和校准温度。
+ */
 export class SensorSimulator {
   private sensors: SensorDictionary;
   private stableTicks = 0;
 
+  /**
+   * 初始化模拟器并设置默认传感器温度值。
+   */
   public constructor(private readonly config: AppConfig) {
     const t = config.Simulation.InitialFurnaceTemp;
     this.sensors = { TF1: t, TF2: t - 0.1, TS: t - 0.5, TC: t - 0.7, TCal: t };
   }
 
+  /**
+   * 根据当前状态和模式更新传感器读数，并返回模拟结果。
+   */
   public update(input: SensorUpdateInput): SensorUpdateResult {
     const simulation = this.config.Simulation;
     const noise = (): number => (Math.random() * 2 - 1) * simulation.TempFluctuation;
@@ -54,10 +69,16 @@ export class SensorSimulator {
     return { sensors: this.rounded(), isStable: this.stableTicks > 3 };
   }
 
+  /**
+   * 获取当前传感器快照，返回已四舍五入到一位小数的值。
+   */
   public getSnapshot(): SensorDictionary {
     return this.rounded();
   }
 
+  /**
+   * 将内部浮点温度值四舍五入到一位小数，便于显示和导出。
+   */
   private rounded(): SensorDictionary {
     return {
       TF1: round1(this.sensors.TF1),

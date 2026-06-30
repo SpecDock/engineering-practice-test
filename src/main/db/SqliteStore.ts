@@ -17,6 +17,9 @@ import type {
 } from '../../shared/types.js';
 import { schemaSql } from './schema.js';
 
+/**
+ * 更新试验结果时传递到数据库存储的结构。
+ */
 export interface UpdateTestResultInput {
   request: CreateTestRequest;
   phenomenon: PhenomenonCalculatedResult;
@@ -30,6 +33,9 @@ export interface UpdateTestResultInput {
 
 type SqlValue = string | number | null;
 
+/**
+ * SqliteStore 封装本地数据库操作，使用 sql.js 在内存中运行并持久化到文件系统。
+ */
 export class SqliteStore {
   private SQL: SqlJsStatic | null = null;
   private db: Database | null = null;
@@ -39,6 +45,9 @@ export class SqliteStore {
     private readonly wasmDirectory = path.join(process.cwd(), 'node_modules', 'sql.js', 'dist'),
   ) {}
 
+  /**
+   * 初始化数据库：创建目录、加载 sql.js wasm 模块、执行模式建表和保存文件。
+   */
   public async init(): Promise<void> {
     await fs.mkdir(path.dirname(this.dbPath), { recursive: true });
     this.SQL = await initSqlJs({ locateFile: (fileName: string) => path.join(this.wasmDirectory, fileName) });
@@ -48,12 +57,18 @@ export class SqliteStore {
     await this.save();
   }
 
+  /**
+   * 将当前数据库内存状态导出到磁盘文件。
+   */
   public async save(): Promise<void> {
     const bytes = this.database.export();
     await fs.mkdir(path.dirname(this.dbPath), { recursive: true });
     await fs.writeFile(this.dbPath, Buffer.from(bytes));
   }
 
+  /**
+   * 登录验证，判断用户名与密码是否匹配。
+   */
   public login(request: LoginRequest): LoginResponse {
     const row = this.selectOne<{ username: string; usertype: string }>(
       'SELECT username, usertype FROM operators WHERE username = ? AND pwd = ?',
@@ -63,6 +78,9 @@ export class SqliteStore {
     return { ok: true, username: request.role, role: request.role };
   }
 
+  /**
+   * 查询设备信息记录，用于前端显示和校准。
+   */
   public getApparatus(): ApparatusInfo {
     const row = this.selectOne<ApparatusInfo>(
       'SELECT apparatusid, innernumber, apparatusname, checkdatef, checkdatet, pidport, powerport, COALESCE(constpower, 0) AS constpower FROM apparatus ORDER BY apparatusid LIMIT 1',
@@ -72,6 +90,9 @@ export class SqliteStore {
     return row;
   }
 
+  /**
+   * 保存或更新产品信息，保证每个样品编号对应最新的规格和尺寸。
+   */
   public upsertProduct(request: CreateTestRequest): void {
     this.database.run(
       `INSERT INTO productmaster (productid, productname, specific, diameter, height, flag)
@@ -85,6 +106,9 @@ export class SqliteStore {
     );
   }
 
+  /**
+   * 插入初始试验记录，后续保存现象时会补充计算结果字段。
+   */
   public insertTestInitial(request: CreateTestRequest): void {
     this.database.run(
       `INSERT INTO testmaster
@@ -113,6 +137,9 @@ export class SqliteStore {
     );
   }
 
+  /**
+   * 更新试验结果记录，并写入最终温度、失重、火焰信息、判定结果等字段。
+   */
   public updateTestResult(input: UpdateTestResultInput): void {
     const stats = calculateSampleStats(input.samples);
     const lostweight = input.phenomenon.lostweight;
@@ -161,6 +188,9 @@ export class SqliteStore {
     );
   }
 
+  /**
+   * 查询历史试验数据，支持按日期、样品编号模糊和操作员过滤。
+   */
   public queryHistory(request: QueryHistoryRequest): QueryHistoryResponse {
     const where: string[] = [];
     const params: SqlValue[] = [];
@@ -192,6 +222,9 @@ export class SqliteStore {
     return { rows };
   }
 
+  /**
+   * 插入校准记录并返回平均温度、最大偏差与是否通过标准。
+   */
   public insertCalibration(input: CalibrationInput, apparatusId: number): CalibrationResult {
     const averageTemperature = input.points.length === 0 ? 0 : input.points.reduce((a, b) => a + b, 0) / input.points.length;
     const maxDeviation = input.points.length === 0 ? 0 : Math.max(...input.points.map((p) => Math.abs(p - averageTemperature)));
@@ -212,11 +245,17 @@ export class SqliteStore {
     return { id, averageTemperature, maxDeviation, uniformityResult, passedCriteria };
   }
 
+  /**
+   * 获取可用的 sql.js 数据库实例，若未初始化则抛出错误。
+   */
   private get database(): Database {
     if (this.db === null) throw new Error('数据库未初始化');
     return this.db;
   }
 
+  /**
+   * 读取已存在的数据库文件，如果不存在则返回 null。
+   */
   private async readExistingDb(): Promise<Uint8Array | null> {
     try {
       return await fs.readFile(this.dbPath);
@@ -226,11 +265,17 @@ export class SqliteStore {
     }
   }
 
+  /**
+   * 执行单行查询并返回结果对象或 null。
+   */
   private selectOne<T extends object>(sql: string, params: readonly SqlValue[]): T | null {
     const rows = this.selectMany<T>(sql, params);
     return rows.length === 0 ? null : rows[0] ?? null;
   }
 
+  /**
+   * 执行查询并返回结果行数组。
+   */
   private selectMany<T extends object>(sql: string, params: readonly SqlValue[]): T[] {
     const result = this.database.exec(sql, params as SqlValue[]);
     if (result.length === 0) return [];
@@ -238,11 +283,17 @@ export class SqliteStore {
   }
 }
 
+/**
+ * 从 sql.js 执行结果中提取行数据并转换为对象数组。
+ */
 function rowsFromExec<T extends object>(result: QueryExecResult | undefined): T[] {
   if (result === undefined) return [];
   return result.values.map((values) => Object.fromEntries(result.columns.map((column, index) => [column, values[index] ?? null])) as T);
 }
 
+/**
+ * 计算样本集合的最大值、终值、时间戳，以及温升信息。
+ */
 function calculateSampleStats(samples: readonly TemperatureSample[]) {
   const initial = samples[0] ?? { timeSeconds: 0, temp1: 0, temp2: 0, tempSurface: 0, tempCenter: 0, tempCalibration: 0 };
   const final = samples[samples.length - 1] ?? initial;
@@ -266,6 +317,9 @@ function calculateSampleStats(samples: readonly TemperatureSample[]) {
   };
 }
 
+/**
+ * 判断是否为 Node.js 错误对象，常用于捕获文件系统异常类型。
+ */
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === 'object' && error !== null && 'code' in error;
 }

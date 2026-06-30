@@ -1,3 +1,6 @@
+/**
+ * 项目共享类型定义：包含请求、响应、运行状态、配置、传感器与试验相关接口。
+ */
 export type Nullable<T> = T | null;
 
 export type Role = 'admin' | 'experimenter';
@@ -9,11 +12,17 @@ export type CompletionFlag = '10000000';
 export type TemperatureChannel = 'TF1' | 'TF2' | 'TS' | 'TC' | 'TCal';
 export type SensorDictionary = Record<TemperatureChannel, number>;
 
+/**
+ * 系统消息条目，包含时间戳和文本内容。
+ */
 export interface MasterMessage {
   time: string;
   message: string;
 }
 
+/**
+ * 温度采样数据结构，每秒一个样本。
+ */
 export interface TemperatureSample {
   timeSeconds: number;
   temp1: number;
@@ -23,6 +32,9 @@ export interface TemperatureSample {
   tempCalibration: number;
 }
 
+/**
+ * 通过 IPC 广播给前端的实时数据结构。
+ */
 export interface DataBroadcastEventArgs {
   messages: readonly MasterMessage[];
   snapshot: TemperatureDisplaySnapshot;
@@ -137,6 +149,9 @@ export interface ApparatusInfo {
   constpower: number;
 }
 
+/**
+ * 应用配置结构，用于定义数据库、硬件、模拟、文件存储和报告输出等参数。
+ */
 export interface AppConfig {
   Database: { Provider: 'Sqlite'; SqlitePath: string };
   Hardware: { ConstPower: number; PidTemperature: number; SensorProtocol: 'ModbusRtu' };

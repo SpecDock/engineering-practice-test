@@ -5,6 +5,7 @@ const root = process.cwd();
 const scanRoots = ['src', 'scripts'];
 const thisFile = path.resolve(root, 'scripts', 'verify-no-network.mjs');
 
+// Fragment selected forbidden names so this script does not flag its own source.
 const forbidden = [
   { label: 'fetch call', regex: new RegExp('\\bfet' + 'ch\\s*\\(') },
   { label: 'WebSocket', regex: new RegExp('\\bWeb' + 'Socket\\b') },
@@ -21,6 +22,8 @@ const forbidden = [
 const extensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
 const violations = [];
 
+// Walk source files and report APIs that would introduce a local server/network
+// dependency into the desktop-only app.
 for (const scanRoot of scanRoots) {
   await walk(path.join(root, scanRoot));
 }
