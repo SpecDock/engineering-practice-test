@@ -1,3 +1,6 @@
+/* SQL schema for the database
+             */
+/*diajidjaidj*/   
 export const schemaSql = `
 CREATE TABLE IF NOT EXISTS "operators" (
     "userid"    TEXT NOT NULL,
