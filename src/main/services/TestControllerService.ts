@@ -117,6 +117,7 @@ export class TestControllerService extends TypedEmitter {
    */
   public startHeating(): Promise<StateChangeResponse> {
     if (this.state !== 'Idle') throw new Error('当前状态不能开始升温，请先新建试验或回到待机状态');
+    if (this.currentTest === null) throw new Error('请先新建试验');
     const previousState = this.state;
     this.state = 'Preparing';
     this.isHeating = true;

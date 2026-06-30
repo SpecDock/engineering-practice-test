@@ -246,7 +246,7 @@ function getDesktopApi() {
  */
 function canRunAction(action: ActionKey, state: TestState, hasActiveTest: boolean): boolean {
   if (action === 'create') return state === 'Idle' || state === 'Complete';
-  if (action === 'startHeating') return hasActiveTest && (state === 'Idle' || state === 'Preparing' || state === 'Ready');
+  if (action === 'startHeating') return hasActiveTest && state === 'Idle';
   if (action === 'stopHeating') return hasActiveTest && (state === 'Preparing' || state === 'Ready');
   if (action === 'startRecording') return hasActiveTest && state === 'Ready';
   if (action === 'stopRecording') return hasActiveTest && state === 'Recording';
