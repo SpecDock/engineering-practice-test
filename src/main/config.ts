@@ -1,3 +1,6 @@
+/**
+ * 西南石油大学结课作业配置
+ */
 import path from 'node:path';
 import type { AppConfig } from '../shared/types.js';
 
