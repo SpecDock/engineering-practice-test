@@ -1,5 +1,5 @@
 /**
- * 主文件
+ * Electron 主进程入口文件，负责创建窗口、注册 IPC 通道并启动核心服务。
  */
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
@@ -24,6 +24,9 @@ const __dirname = path.dirname(__filename);
 let mainWindow: BrowserWindow | null = null;
 let service: TestControllerService | null = null;
 
+/**
+ * 创建主窗口并注册实时数据广播到渲染进程。
+ */
 async function createWindow(): Promise<void> {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -42,6 +45,9 @@ async function createWindow(): Promise<void> {
   await mainWindow.loadFile(path.join(app.getAppPath(), 'dist', 'renderer', 'index.html'));
 }
 
+/**
+ * 注册所有 IPC 通道处理函数，将前端请求映射到服务方法。
+ */
 function registerHandlers(): void {
   handle(IPC_CHANNELS.status, () => requireService().getStatus());
   handle(IPC_CHANNELS.login, (payload) => requireService().login(asObject<LoginRequest>(payload)));
@@ -56,11 +62,17 @@ function registerHandlers(): void {
   handle(IPC_CHANNELS.saveCalibration, (payload) => requireService().saveCalibration(asObject<CalibrationInput>(payload)));
 }
 
+/**
+ * 获取已初始化的 TestControllerService 实例，若尚未初始化则抛出错误。
+ */
 function requireService(): TestControllerService {
   if (service === null) throw new Error('服务尚未初始化');
   return service;
 }
 
+/**
+ * 注册 IPC handler，统一处理异常并返回标准 IpcResult 结构。
+ */
 function handle<T>(channel: string, fn: (payload: unknown) => T | Promise<T>): void {
   ipcMain.handle(channel, async (_event, payload: unknown): Promise<IpcResult<T>> => {
     try {
@@ -72,6 +84,9 @@ function handle<T>(channel: string, fn: (payload: unknown) => T | Promise<T>): v
   });
 }
 
+/**
+ * 将 IPC 传入负载转换为对象类型，并做基础类型检查。
+ */
 function asObject<T>(payload: unknown): T {
   if (typeof payload !== 'object' || payload === null) throw new Error('IPC 参数必须是对象');
   return payload as T;

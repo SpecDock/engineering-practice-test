@@ -17,6 +17,9 @@ import type {
   StateChangeResponse,
 } from '../shared/types.js';
 
+/**
+ * 封装 IPC 调用逻辑，统一处理返回结果并抛出错误。
+ */
 async function invoke<T>(channel: string, payload?: unknown): Promise<T> {
   const result = await ipcRenderer.invoke(channel, payload) as IpcResult<T>;
   if (result.ok) return result.data;
@@ -42,4 +45,7 @@ const api: IsoDesktopApi = {
   },
 };
 
+/**
+ * 将本地桌面 API 暴露到渲染进程的 window 对象上，确保安全隔离。
+ */
 contextBridge.exposeInMainWorld('iso11820', api);

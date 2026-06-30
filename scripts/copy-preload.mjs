@@ -5,6 +5,7 @@ const root = process.cwd();
 const source = path.join(root, 'src', 'main', 'preload.cjs');
 const target = path.join(root, 'dist', 'main', 'main', 'preload.cjs');
 
+// Copy the CommonJS preload file after TypeScript has emitted the main bundle.
 await fs.mkdir(path.dirname(target), { recursive: true });
 await fs.copyFile(source, target);
 console.log(`copy-preload: ${path.relative(root, target)}`);

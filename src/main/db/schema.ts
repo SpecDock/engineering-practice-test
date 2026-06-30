@@ -1,6 +1,6 @@
-/* SQL schema for the database
-             */
-/*diajidjaidj*/   
+/**
+ * 数据库模式定义，包含操作员、设备、样品、试验、传感器和校准记录表。
+ */
 export const schemaSql = `
 CREATE TABLE IF NOT EXISTS "operators" (
     "userid"    TEXT NOT NULL,

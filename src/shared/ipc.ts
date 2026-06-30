@@ -14,6 +14,9 @@ import type {
   StateChangeResponse,
 } from './types.js';
 
+/**
+ * 前后端 IPC 通道常量，规范 Renderer 与 Main 进程之间的消息名称。
+ */
 export const IPC_CHANNELS = {
   status: 'iso:status',
   login: 'iso:login',

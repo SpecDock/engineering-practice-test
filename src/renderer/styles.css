@@ -1,3 +1,4 @@
+/* Global visual theme for the local ISO 11820 desktop console. */
 :root {
   color-scheme: dark;
   --bg: #071016;
@@ -42,6 +43,7 @@ button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: wait; opacity: 0.6; }
 
+/* Login screen layout. */
 .login-shell {
   min-height: 100vh;
   display: grid;
@@ -164,6 +166,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--cyan); box-shado
 .primary-action { width: 100%; margin-top: 20px; }
 .login-error { color: var(--red); margin-top: 14px; }
 
+/* Main authenticated workspace. */
 .app-shell { padding: 28px; }
 .topbar {
   display: flex;
@@ -217,6 +220,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--cyan); box-shado
 .notice-warn { background: rgba(255,211,106,0.16); border: 1px solid rgba(255,211,106,0.34); }
 .notice-danger { background: rgba(255,111,145,0.16); border: 1px solid rgba(255,111,145,0.34); }
 
+/* Realtime dashboard and sensor cards. */
 .dashboard-grid {
   display: grid;
   grid-template-columns: 1.5fr repeat(5, 1fr);
@@ -264,6 +268,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--cyan); box-shado
 .led-card strong { font-size: 34px; letter-spacing: -0.04em; text-shadow: 0 0 22px currentColor; }
 .led-card small { color: var(--muted); }
 
+/* Form, control, chart, log, history and calibration panels. */
 .workbench {
   display: grid;
   grid-template-columns: minmax(520px, 1.05fr) minmax(380px, 0.75fr);
@@ -333,6 +338,7 @@ td { color: #d7e5e3; }
 .empty-state { padding: 22px; color: var(--muted); text-align: center; }
 .calibration-grid { display: grid; grid-template-columns: repeat(9, 1fr); gap: 10px; }
 
+/* Compact desktop layout for narrower windows. */
 @media (max-width: 1300px) {
   body { min-width: 1024px; }
   .dashboard-grid { grid-template-columns: repeat(3, 1fr); }
